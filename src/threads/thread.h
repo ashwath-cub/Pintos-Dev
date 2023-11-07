@@ -90,14 +90,15 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 
-    /* Shared between thread.c and synch.c. */
+    /* Shared between thread.c and synch.c &timer.c . */
     struct list_elem elem;              /* List element. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
-
+   int64_t sleep_time;
+   int64_t elapsed_sleep_time;
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

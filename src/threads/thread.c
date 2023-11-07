@@ -134,6 +134,11 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  /* check to see if sleeping threads need to be woken up*/
+  if(!list_empty(&sleeping_threads))
+  {
+    
+  } 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
