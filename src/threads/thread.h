@@ -128,8 +128,11 @@ void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
-typedef void thread_action_func (struct thread *t, void *aux);
+typedef struct list_elem* thread_action_func_return_next (struct thread *t, void *aux);
+typedef void thread_action_func(struct thread *t, void *aux);
+
 void thread_foreach (thread_action_func *, void *);
+void thread_foreach_inlist(struct list* thread_list, thread_action_func_return_next *func, void *aux);
 
 int thread_get_priority (void);
 void thread_set_priority (int);

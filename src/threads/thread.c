@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -26,7 +27,7 @@ static struct list ready_list;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
-static struct list all_list;
+struct list all_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -117,6 +118,22 @@ thread_start (void)
   sema_down (&idle_started);
 }
 
+static struct list_elem* wakeup_sleeping_thread_if_its_time_return_next(struct thread *t, void *aux)
+{
+  t->elapsed_sleep_time ++ ;
+  // save next_elem, before the current elem is placed on a different list
+  struct list_elem* next_elem = list_next(&t->elem); 
+  if(t->elapsed_sleep_time >= t->sleep_time)
+  {
+    /* remove from sleeping threads and unblock(to be placed at the ready queue) */
+    list_remove(&t->elem);
+    t->elapsed_sleep_time=0;
+    t->sleep_time=0;
+    thread_unblock(t);
+  }
+  return next_elem;
+}
+
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
 void
@@ -137,7 +154,7 @@ thread_tick (void)
   /* check to see if sleeping threads need to be woken up*/
   if(!list_empty(&sleeping_threads))
   {
-    
+    thread_foreach_inlist(&sleeping_threads, wakeup_sleeping_thread_if_its_time_return_next, NULL);  
   } 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -334,6 +351,21 @@ thread_foreach (thread_action_func *func, void *aux)
       struct thread *t = list_entry (e, struct thread, allelem);
       func (t, aux);
     }
+}
+
+/* Invoke function 'func' on all threads, passing along 'aux'.
+   This function must be called with interrupts off. */
+void thread_foreach_inlist(struct list* thread_list, thread_action_func_return_next *func, void *aux)
+{
+  struct list_elem *e;
+
+  ASSERT (intr_get_level () == INTR_OFF);
+  e = list_begin (thread_list);
+  while( e != list_end (thread_list))
+  {
+    struct thread *t = list_entry (e, struct thread, elem);
+    e=func (t, aux);
+  }
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
