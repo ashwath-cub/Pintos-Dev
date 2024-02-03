@@ -88,6 +88,7 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    uint16_t original_priority;         /* store the original priority here; only read this value after initialization */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c &timer.c . */
@@ -141,5 +142,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread);
 
 #endif /* threads/thread.h */

@@ -253,13 +253,15 @@ thread_block (void)
 void
 thread_unblock (struct thread *t) 
 {
+  //TODO: Add call to schedule
   enum intr_level old_level;
 
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  thread_place_on_list_per_sched_policy(&ready_list, &t->elem);
+  
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -330,12 +332,38 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    thread_place_on_list_per_sched_policy(&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
 }
 
+bool is_thread_from_list_elemA_high_priority(struct list_elem* list_elemA, struct list_elem* list_elemB, void* aux)
+{
+  struct thread * threadA= list_entry(list_elemA, struct thread, elem);
+  struct thread * threadB= list_entry(list_elemB, struct thread, elem);
+  uint8_t priority_threadA=threadA->priority;
+  uint8_t priority_threadB=threadB->priority;
+  bool return_val=false;
+
+  if(priority_threadA>priority_threadB)
+  {
+    return_val=true;
+  }
+
+  return return_val;
+}
+
+
+void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread)
+{
+#define SCHED_POLICY SCHED_PRIORITY_PREMPTIVE
+#if SCHED_POLICY == SCHED_RR
+  list_push_back (resource_list, thread);
+#elif SCHED_POLICY == SCHED_PRIORITY_PREMPTIVE
+  list_insert_ordered(resource_list, thread, is_thread_from_list_elemA_high_priority, NULL);
+#endif
+}
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void
@@ -499,6 +527,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->original_priority = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

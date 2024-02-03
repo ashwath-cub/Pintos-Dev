@@ -68,7 +68,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      thread_place_on_list_per_sched_policy(&sema->waiters, &thread_current ()->elem);
       thread_block ();
     }
   sema->value--;
