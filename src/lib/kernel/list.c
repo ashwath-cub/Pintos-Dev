@@ -154,6 +154,30 @@ list_head (struct list *list)
   return &list->head;
 }
 
+/* Return's LIST's head, given interior list elem 
+
+   list_head() can be used for an alternate style of iterating
+   through a list, e.g.:
+
+      e = list_head (&list);
+      while ((e = list_next (e)) != list_end (&list)) 
+        {
+          ...
+        }
+*/
+struct list_elem *
+list_head_given_interior_elem (struct list_elem *elem) 
+{
+  ASSERT (is_interior (elem));
+  
+  do
+  {
+    elem = list_prev(elem);  
+  } while (elem!=is_head(elem));
+  
+  return elem;
+}
+
 /* Return's LIST's tail. */
 struct list_elem *
 list_tail (struct list *list) 

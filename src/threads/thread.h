@@ -11,12 +11,22 @@ enum thread_status
     THREAD_RUNNING,     /* Running thread. */
     THREAD_READY,       /* Not running but ready to run. */
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
+    THREAD_SLEEPING,    /* Thread is on the sleep queue; This helps us distinguish between the case where 
+                           the thread is actually waiting for a resource*/
     THREAD_DYING        /* About to be destroyed. */
   };
 
+/* track's if a thread is a priority donee. */
+enum priority_donee_status
+{
+    PRIORITY_DONEE=51,
+    PRIORITY_NON_DONEE=52
+};
+
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
-typedef int tid_t;
+typedef int32_t tid_t;
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
 
 /* Thread priorities. */
@@ -87,13 +97,16 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
-    uint16_t original_priority;         /* store the original priority here; only read this value after initialization */
+    uint8_t priority;                   /* Priority. */
+    enum priority_donee_status donee_status;                   /* Priority. */
+    uint8_t donee_priority;             /* store the donee's original priority here; this helps with cases where the donee receives multiple priority donations */
+    struct thread* donee_thread;        /* this helps us with nested priority donations */ 
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c &timer.c . */
     struct list_elem elem;              /* List element. */
-
+    /*add all threads who donate priorities onto this list*/
+    struct list_elem priority_donor_list_elem; 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -109,6 +122,9 @@ struct thread
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
+extern struct list ready_list;
+extern struct list all_list;
+extern struct list priority_donors_list;
 void thread_init (void);
 void thread_start (void);
 
@@ -144,5 +160,6 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread);
+bool is_thread_from_list_elemA_high_priority(struct list_elem* list_elemA, struct list_elem* list_elemB, void* aux);
 
 #endif /* threads/thread.h */

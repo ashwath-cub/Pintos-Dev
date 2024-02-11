@@ -23,12 +23,14 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+struct list ready_list={0};
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
-struct list all_list;
+struct list all_list={0};
 
+/*list of all threads who've donated their priority*/
+struct list priority_donors_list={0};
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -93,6 +95,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&priority_donors_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -226,8 +229,8 @@ thread_create (const char *name, int priority,
   return tid;
 }
 
-/* Puts the current thread to sleep.  It will not be scheduled
-   again until awoken by thread_unblock().
+/* Puts the current thread to sleep, while it's waiting on a resource.  
+   It will not be scheduled again until awoken by thread_unblock().
 
    This function must be called with interrupts turned off.  It
    is usually a better idea to use one of the synchronization
@@ -242,6 +245,23 @@ thread_block (void)
   schedule ();
 }
 
+/* Puts the current thread to sleep while its timer expires.  
+   It will not be scheduled again until awoken by thread_unblock().
+
+   This function must be called with interrupts turned off.  It
+   is usually a better idea to use one of the synchronization
+   primitives in synch.h. */
+void
+thread_sleep(void) 
+{
+  ASSERT (!intr_context ());
+  ASSERT (intr_get_level () == INTR_OFF);
+
+  thread_current ()->status = THREAD_SLEEPING;
+  schedule ();
+}
+
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
@@ -253,16 +273,24 @@ thread_block (void)
 void
 thread_unblock (struct thread *t) 
 {
-  //TODO: Add call to schedule
   enum intr_level old_level;
 
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
-  ASSERT (t->status == THREAD_BLOCKED);
+  ASSERT (t->status == THREAD_BLOCKED||t->status == THREAD_SLEEPING);
+  struct thread *cur = thread_current ();
   thread_place_on_list_per_sched_policy(&ready_list, &t->elem);
-  
   t->status = THREAD_READY;
+  if(cur->priority<=t->priority)
+  {
+    if (cur != idle_thread) 
+    {
+      thread_place_on_list_per_sched_policy(&ready_list, &cur->elem);
+      cur->status = THREAD_READY;
+      schedule ();
+    }
+  }
   intr_set_level (old_level);
 }
 
@@ -357,10 +385,12 @@ bool is_thread_from_list_elemA_high_priority(struct list_elem* list_elemA, struc
 
 void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread)
 {
+#define SCHED_PRIORITY_PREMPTIVE 1
 #define SCHED_POLICY SCHED_PRIORITY_PREMPTIVE
 #if SCHED_POLICY == SCHED_RR
   list_push_back (resource_list, thread);
 #elif SCHED_POLICY == SCHED_PRIORITY_PREMPTIVE
+
   list_insert_ordered(resource_list, thread, is_thread_from_list_elemA_high_priority, NULL);
 #endif
 }
@@ -401,6 +431,15 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  struct list_elem* front_elem=list_front(&ready_list);
+  struct thread* highest_priority_thread_on_queue=list_entry(front_elem, struct thread, elem);
+  
+  //printf("highest_priority_thread_on_queuepriority%u, new_priority:%u\n",highest_priority_thread_on_queue->priority,new_priority);
+  if(highest_priority_thread_on_queue->priority>new_priority)
+  {
+    
+    thread_yield();
+  } 
 }
 
 /* Returns the current thread's priority. */
@@ -527,7 +566,10 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->original_priority = priority;
+  //enable only for priority scheduling
+  t->donee_priority = 0xFF;
+  t->donee_status = PRIORITY_NON_DONEE;
+  t->donee_thread=NULL;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
