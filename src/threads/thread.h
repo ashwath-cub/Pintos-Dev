@@ -100,13 +100,14 @@ struct thread
     uint8_t priority;                   /* Priority. */
     enum priority_donee_status donee_status;                   /* Priority. */
     uint8_t donee_priority;             /* store the donee's original priority here; this helps with cases where the donee receives multiple priority donations */
+    uint8_t original_priority;
     struct thread* donee_thread;        /* this helps us with nested priority donations */ 
     struct list_elem allelem;           /* List element for all threads list. */
+    uint32_t number_of_donors;
 
     /* Shared between thread.c and synch.c &timer.c . */
     struct list_elem elem;              /* List element. */
-    /*add all threads who donate priorities onto this list*/
-    struct list_elem priority_donor_list_elem; 
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -121,6 +122,9 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+#define SCHED_PRIORITY_PREMPTIVE 1
+#define SCHED_POLICY SCHED_PRIORITY_PREMPTIVE
 
 extern struct list ready_list;
 extern struct list all_list;
@@ -160,6 +164,6 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread);
-bool is_thread_from_list_elemA_high_priority(struct list_elem* list_elemA, struct list_elem* list_elemB, void* aux);
+bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux);
 
 #endif /* threads/thread.h */

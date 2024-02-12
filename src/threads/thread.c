@@ -366,7 +366,7 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
-bool is_thread_from_list_elemA_high_priority(struct list_elem* list_elemA, struct list_elem* list_elemB, void* aux)
+bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux)
 {
   struct thread * threadA= list_entry(list_elemA, struct thread, elem);
   struct thread * threadB= list_entry(list_elemB, struct thread, elem);
@@ -385,8 +385,7 @@ bool is_thread_from_list_elemA_high_priority(struct list_elem* list_elemA, struc
 
 void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread)
 {
-#define SCHED_PRIORITY_PREMPTIVE 1
-#define SCHED_POLICY SCHED_PRIORITY_PREMPTIVE
+
 #if SCHED_POLICY == SCHED_RR
   list_push_back (resource_list, thread);
 #elif SCHED_POLICY == SCHED_PRIORITY_PREMPTIVE
@@ -568,6 +567,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   //enable only for priority scheduling
   t->donee_priority = 0xFF;
+  t->original_priority = priority;
+  t->number_of_donors = 0;
   t->donee_status = PRIORITY_NON_DONEE;
   t->donee_thread=NULL;
   t->magic = THREAD_MAGIC;
