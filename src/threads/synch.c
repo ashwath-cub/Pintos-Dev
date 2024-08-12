@@ -181,71 +181,6 @@ lock_init (struct lock *lock)
   sema_init (&lock->semaphore, 1);
 }
 
-void handle_priority_donation(struct lock *lock)
-{
-  enum intr_level old_level;
-  struct thread* thread_ptr, *current_thread_ptr;
-  uint8_t nested_priority_donation=0;
-  struct list_elem* list_head ;
-  struct list* resource_list;
-  
-  ASSERT (!intr_context ());
-
-  old_level = intr_disable ();
-  current_thread_ptr=thread_current();
-  // this indicates lock has been acquired by some other thread
-  // and is a case where we can check if donation is needed
-  if((lock->holder!=NULL) && (lock->semaphore.value==0))
-  {
-    thread_ptr=lock->holder;
-    current_thread_ptr->donee_thread=thread_ptr;
-    do
-    {
-      if((thread_ptr->priority) < current_thread_ptr->priority)
-      {
-        // copy donee's original first
-        current_thread_ptr->donee_priority = thread_ptr->priority;
-        // priority donation is required here
-        thread_ptr->priority=current_thread_ptr->priority;
-        // set donee status
-        thread_ptr->donee_status= PRIORITY_DONEE;
-        // increment number of donors
-        thread_ptr->number_of_donors++;
-        // if the donee's status is blocked/ready(it could also be sleeping), 
-        // re-add to the queue in which it is placed
-        if(thread_ptr->status==THREAD_READY)
-        {
-          list_remove(&thread_ptr->elem);
-          //add to ready list according to new priority
-          thread_place_on_list_per_sched_policy(&ready_list, &thread_ptr->elem);  
-        }
-        else if(thread_ptr->status==THREAD_BLOCKED)
-        {
-          list_head = list_head_given_interior_elem(&thread_ptr->elem);
-          resource_list= (struct list*)list_head;
-          list_remove(&thread_ptr->elem);
-          thread_place_on_list_per_sched_policy(resource_list, &thread_ptr->elem);
-        }
-        thread_ptr=thread_ptr->donee_thread;
-        nested_priority_donation++;
-      }
-      else
-      {
-        // terminate loop
-        thread_ptr = NULL;
-        current_thread_ptr->donee_thread=NULL; 
-      }
-    } while ( (thread_ptr!=NULL)&&(nested_priority_donation<NESTED_PRIORITY_DONATION_LIMIT));
-  }
-  while (lock->semaphore.value==0) 
-  {
-    thread_place_on_list_per_sched_policy(&lock->semaphore.waiters, &thread_current ()->elem);
-    thread_block();
-  }
-  lock->holder=thread_current();
-  lock->semaphore.value--;
-  intr_set_level (old_level);  
-}
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -290,61 +225,7 @@ lock_try_acquire (struct lock *lock)
     lock->holder = thread_current ();
   return success;
 }
-void cleanup_priority_donation_code(struct lock *lock)
-{
-  struct thread* current_thread = lock->holder;
-  enum intr_level old_level;
-  struct thread *t;
-  struct list_elem* e;
-  old_level = intr_disable ();
-  if(current_thread->donee_status == PRIORITY_DONEE)
-  {
-    // this thread was a donee
-    // scan all threads to see which was its corresponding donor
-    // release priority from all the threads which donated its priority for this current lock
 
-    for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
-       e = list_next (e))
-    {
-      t = list_entry (e, struct thread, elem);
-      if(t->donee_thread==current_thread)
-      {
-        //match found; reset value in donor thread
-        t->donee_thread = NULL;
-        ASSERT(current_thread->number_of_donors>0);   
-        current_thread->number_of_donors--;
-        t->donee_priority=0xFF;
-
-        if(current_thread->number_of_donors==0)
-        {
-          current_thread->priority = current_thread->original_priority;
-          current_thread->donee_status = PRIORITY_NON_DONEE;
-        }
-        else if(current_thread->priority == t->priority)
-        {
-          if(current_thread->number_of_donors!= 0)
-          {
-            current_thread->priority = t->donee_priority;
-          }
-        }
-        else if(current_thread->priority > t->priority)
-        {
-
-        }
-        else
-        {
-          ASSERT(0);
-        }
-      }
-    }
-  }
-  lock->semaphore.value++;
-  lock->holder=NULL;
-  if (!list_empty (&lock->semaphore.waiters)) 
-    thread_unblock (list_entry (list_pop_front (&lock->semaphore.waiters),
-                                struct thread, elem));
-  intr_set_level(old_level);
-}
 /* Releases LOCK, which must be owned by the current thread.
 
    An interrupt handler cannot acquire a lock, so it does not
@@ -355,7 +236,7 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-  cleanup_priority_donation_code(lock);
+  //cleanup_priority_donation_code(lock);
   #if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
   sema_up (&lock->semaphore);
   lock->holder=NULL;
