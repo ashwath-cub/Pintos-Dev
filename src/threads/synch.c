@@ -198,10 +198,10 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   //handle_priority_donation(lock);
-  #if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
+  //#if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
   sema_down (&lock->semaphore);
   lock->holder=thread_current();
-  #endif
+  //#endif
 
 
 }
@@ -237,10 +237,10 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
   //cleanup_priority_donation_code(lock);
-  #if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
+  //#if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
   sema_up (&lock->semaphore);
   lock->holder=NULL;
-  #endif
+  //#endif
 }
 
 /* Returns true if the current thread holds LOCK, false
