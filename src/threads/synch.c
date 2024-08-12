@@ -197,7 +197,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  handle_priority_donation(lock);
+  //handle_priority_donation(lock);
   #if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
   sema_down (&lock->semaphore);
   lock->holder=thread_current();
