@@ -107,7 +107,8 @@ struct thread
 
     /* Shared between thread.c and synch.c &timer.c . */
     struct list_elem elem;              /* List element. */
-
+    struct list_elem priority_donors_list_elem;
+    struct list priority_donors_list ;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -128,7 +129,6 @@ extern bool thread_mlfqs;
 
 extern struct list ready_list;
 extern struct list all_list;
-extern struct list priority_donors_list;
 void thread_init (void);
 void thread_start (void);
 
