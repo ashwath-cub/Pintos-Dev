@@ -369,6 +369,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /* List element. */
     struct semaphore semaphore;         /* This semaphore. */
+    uint8_t priority;
   };
 
 /* Initializes condition variable COND.  A condition variable
@@ -381,6 +382,23 @@ cond_init (struct condition *cond)
 
   list_init (&cond->waiters);
 }
+
+bool is_semaphore_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux)
+{
+  struct semaphore_elem * semA= list_entry(list_elemA, struct semaphore_elem, elem);
+  struct semaphore_elem * semB= list_entry(list_elemB, struct semaphore_elem, elem);
+  uint8_t priority_semA=semA->priority;
+  uint8_t priority_semB=semB->priority;
+  bool return_val=false;
+
+  if(priority_semA>priority_semB)
+  {
+    return_val=true;
+  }
+
+  return return_val;
+}
+
 
 /* Atomically releases LOCK and waits for COND to be signaled by
    some other piece of code.  After COND is signaled, LOCK is
@@ -413,7 +431,15 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
+  //also tie current thread's priority to this semaphore
+  waiter.priority = thread_current()->priority;
+  
+  
+#if SCHED_POLICY == SCHED_RR
   list_push_back (&cond->waiters, &waiter.elem);
+#elif SCHED_POLICY == SCHED_PRIORITY_PREMPTIVE
+  list_insert_ordered(&cond->waiters, &waiter.elem, is_semaphore_from_list_elemA_high_priority, NULL);
+#endif
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
