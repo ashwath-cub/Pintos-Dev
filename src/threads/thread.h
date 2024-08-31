@@ -98,7 +98,7 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     uint8_t priority;                   /* Priority. */
-    enum priority_donee_status donee_status;                   /* Priority. */
+//    enum priority_donee_status donee_status;                   /* Priority. */
     uint8_t donee_priority;             /* store the donee's original priority here; this helps with cases where the donee receives multiple priority donations */
     uint8_t original_priority;
     struct thread* donee_thread;        /* this helps us with nested priority donations */ 
@@ -107,8 +107,8 @@ struct thread
 
     /* Shared between thread.c and synch.c &timer.c . */
     struct list_elem elem;              /* List element. */
-    struct list_elem priority_donors_list_elem;
-    struct list priority_donors_list ;
+    //struct list_elem priority_donors_list_elem;
+    //struct list priority_donors_list ;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

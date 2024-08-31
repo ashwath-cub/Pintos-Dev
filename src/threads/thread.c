@@ -428,16 +428,34 @@ void thread_foreach_inlist(struct list* thread_list, thread_action_func_return_n
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
-  struct list_elem* front_elem=list_front(&ready_list);
-  struct thread* highest_priority_thread_on_queue=list_entry(front_elem, struct thread, elem);
-  
-  //printf("highest_priority_thread_on_queuepriority%u, new_priority:%u\n",highest_priority_thread_on_queue->priority,new_priority);
-  if(highest_priority_thread_on_queue->priority>new_priority)
+  // check to see if priority donation is in progress
+  if(thread_current ()->priority != thread_current ()->original_priority)
   {
-    
-    thread_yield();
-  } 
+    thread_current ()->original_priority = new_priority ; 
+  }
+  else
+  {
+    // reset both priority and original priority
+    // this is saying this is an all new thread with the effective priority of 'new_priority'
+    // else this runs into issues where the priority donation engine assumes there's been a
+    // donation when in fact there is none.
+    thread_current ()->priority = new_priority;
+    thread_current ()->original_priority = new_priority;
+    //check to see if other run-able candidates exist
+    if( !list_empty(&ready_list) )
+    {
+      struct list_elem* front_elem=list_front(&ready_list);
+      struct thread* highest_priority_thread_on_queue=list_entry(front_elem, struct thread, elem);
+      
+      //printf("highest_priority_thread_on_queuepriority%u, new_priority:%u\n",highest_priority_thread_on_queue->priority,new_priority);
+      if(highest_priority_thread_on_queue->priority>new_priority)
+      {
+        thread_yield();
+      }
+    }
+  }
+  
+   
 }
 
 /* Returns the current thread's priority. */
@@ -568,10 +586,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->donee_priority = 0xFF;
   t->original_priority = priority;
   t->number_of_donors = 0;
-  t->donee_status = PRIORITY_NON_DONEE;
+  //t->donee_status = PRIORITY_NON_DONEE;
   t->donee_thread=NULL;
   t->magic = THREAD_MAGIC;
-  list_init (&t->priority_donors_list);
+  //list_init (&t->priority_donors_list);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

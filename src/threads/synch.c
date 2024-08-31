@@ -197,7 +197,7 @@ void handle_priority_donation(struct lock *lock)
   current_thread_ptr=thread_current();
   // this indicates lock has been acquired by some other thread
   // and is a case where donation is needed
-  if((lock_holder_thread_ptr->priority < current_thread_ptr->priority) && lock->semaphore.value==0 ) 
+  if( (lock_holder_thread_ptr!=NULL) && (lock_holder_thread_ptr->priority < current_thread_ptr->priority) && lock->semaphore.value==0 ) 
   {
     // copy donee's original first
     current_thread_ptr->donee_priority = lock_holder_thread_ptr->priority;
@@ -246,12 +246,12 @@ void handle_priority_donation(struct lock *lock)
 
 void reset_priority_donation(struct lock *lock)
 {
-  struct thread* current_thread = lock->holder;
+  struct thread* current_thread = thread_current();
   enum intr_level old_level;
   struct thread *t;
   struct list_elem* e;
   old_level = intr_disable ();
-
+  bool match_found = true;
   // check to see if current thread received a priority donation
   if(current_thread->original_priority != current_thread->priority)
   {
@@ -269,27 +269,21 @@ void reset_priority_donation(struct lock *lock)
         //match found; reset value in donor thread
         t->donee_thread = NULL;
         current_thread->number_of_donors --;
-        if (current_thread->priority == t->priority )
-        {
-          current_thread->priority = t->donee_priority;
-          if (current_thread->priority != current_thread->original_priority && current_thread->number_of_donors == 0 )
-          {
-            current_thread->priority = current_thread->original_priority;
-          }
-        }
-        else if( current_thread->priority > t->priority)
-        {
-          //NOP
-          // safe to assume current thread has donations from other higher priority threads
-          // do not set here; value would be modified aptly when the associated lock is released
+        match_found = true;
+      }
+
+      if (current_thread->priority == t->priority )
+      {
+        current_thread->priority = t->donee_priority;
         
-        }
-        else
-        {
-          ASSERT(0);
-        }  
       }
     }
+  
+    if (current_thread->priority != current_thread->original_priority && current_thread->number_of_donors == 0 )
+    {
+      current_thread->priority = current_thread->original_priority;
+    }
+
   }
   lock->semaphore.value++;
   lock->holder=NULL;
@@ -320,8 +314,6 @@ lock_acquire (struct lock *lock)
   sema_down (&lock->semaphore);
   lock->holder=thread_current();
   #endif
-
-
 }
 
 /* Tries to acquires LOCK and returns true if successful or false

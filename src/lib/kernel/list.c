@@ -170,11 +170,10 @@ list_head_given_interior_elem (struct list_elem *elem)
 {
   ASSERT (is_interior (elem));
   
-  do
+  while (!is_head(elem))
   {
-    elem = list_prev(elem);  
-  } while (elem!=is_head(elem));
-  
+    elem = list_prev(elem);
+  }
   return elem;
 }
 
