@@ -309,11 +309,15 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  handle_priority_donation(lock);
-  #if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
-  sema_down (&lock->semaphore);
-  lock->holder=thread_current();
-  #endif
+  if( thread_mlfqs == true )
+  {
+    sema_down(&lock->semaphore);
+    lock->holder=thread_current();
+  }
+  else
+  {
+    handle_priority_donation(lock);
+  }
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -346,11 +350,16 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-  reset_priority_donation(lock);
-  #if SCHED_POLICY != SCHED_PRIORITY_PREMPTIVE
-  sema_up (&lock->semaphore);
-  lock->holder=NULL;
-  #endif
+  
+  if(thread_mlfqs==false)
+  {
+    reset_priority_donation(lock);
+  }
+  else
+  {
+    sema_up (&lock->semaphore);
+    lock->holder=NULL;
+  }
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -431,15 +440,21 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  //also tie current thread's priority to this semaphore
-  waiter.priority = thread_current()->priority;
+
   
-  
-#if SCHED_POLICY == SCHED_RR
-  list_push_back (&cond->waiters, &waiter.elem);
-#elif SCHED_POLICY == SCHED_PRIORITY_PREMPTIVE
-  list_insert_ordered(&cond->waiters, &waiter.elem, is_semaphore_from_list_elemA_high_priority, NULL);
-#endif
+  if(thread_mlfqs == true)
+  {
+    list_push_back (&cond->waiters, &waiter.elem);
+  }  
+  else
+  {
+    //also tie current thread's priority to this semaphore
+    waiter.priority = thread_current()->priority;
+
+    list_insert_ordered(&cond->waiters, &waiter.elem, is_semaphore_from_list_elemA_high_priority, NULL);
+  }
+    
+
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);

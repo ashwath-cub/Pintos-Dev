@@ -385,12 +385,10 @@ bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA,
 void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread)
 {
 
-#if SCHED_POLICY == SCHED_RR
-  list_push_back (resource_list, thread);
-#elif SCHED_POLICY == SCHED_PRIORITY_PREMPTIVE
-
-  list_insert_ordered(resource_list, thread, is_thread_from_list_elemA_high_priority, NULL);
-#endif
+  if( thread_mlfqs == false )
+  {
+    list_insert_ordered(resource_list, thread, is_thread_from_list_elemA_high_priority, NULL);
+  }
 }
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -428,34 +426,36 @@ void thread_foreach_inlist(struct list* thread_list, thread_action_func_return_n
 void
 thread_set_priority (int new_priority) 
 {
-  // check to see if priority donation is in progress
-  if(thread_current ()->priority != thread_current ()->original_priority)
+  if( thread_mlfqs == false )
   {
-    thread_current ()->original_priority = new_priority ; 
-  }
-  else
-  {
-    // reset both priority and original priority
-    // this is saying this is an all new thread with the effective priority of 'new_priority'
-    // else this runs into issues where the priority donation engine assumes there's been a
-    // donation when in fact there is none.
-    thread_current ()->priority = new_priority;
-    thread_current ()->original_priority = new_priority;
-    //check to see if other run-able candidates exist
-    if( !list_empty(&ready_list) )
+    // check to see if priority donation is in progress
+    if(thread_current ()->priority != thread_current ()->original_priority)
     {
-      struct list_elem* front_elem=list_front(&ready_list);
-      struct thread* highest_priority_thread_on_queue=list_entry(front_elem, struct thread, elem);
-      
-      //printf("highest_priority_thread_on_queuepriority%u, new_priority:%u\n",highest_priority_thread_on_queue->priority,new_priority);
-      if(highest_priority_thread_on_queue->priority>new_priority)
+      thread_current ()->original_priority = new_priority ; 
+    }
+    else
+    {
+      // reset both priority and original priority
+      // this is saying this is an all new thread with the effective priority of 'new_priority'
+      // else this runs into issues where the priority donation engine assumes there's been a
+      // donation when in fact there is none.
+      thread_current ()->priority = new_priority;
+      thread_current ()->original_priority = new_priority;
+      //check to see if other run-able candidates exist
+      if( !list_empty(&ready_list) )
       {
-        thread_yield();
+        struct list_elem* front_elem=list_front(&ready_list);
+        struct thread* highest_priority_thread_on_queue=list_entry(front_elem, struct thread, elem);
+        
+        //printf("highest_priority_thread_on_queuepriority%u, new_priority:%u\n",highest_priority_thread_on_queue->priority,new_priority);
+        if(highest_priority_thread_on_queue->priority>new_priority)
+        {
+          thread_yield();
+        }
       }
     }
   }
   
-   
 }
 
 /* Returns the current thread's priority. */
@@ -582,12 +582,16 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  //enable only for priority scheduling
-  t->donee_priority = 0xFF;
-  t->original_priority = priority;
-  t->number_of_donors = 0;
-  //t->donee_status = PRIORITY_NON_DONEE;
-  t->donee_thread=NULL;
+  
+  if( thread_mlfqs == false )
+  {  //enable only for priority scheduling
+    t->donee_priority = 0xFF;
+    t->original_priority = priority;
+    t->number_of_donors = 0;
+    //t->donee_status = PRIORITY_NON_DONEE;
+    t->donee_thread=NULL;
+  }
+
   t->magic = THREAD_MAGIC;
   //list_init (&t->priority_donors_list);
 
