@@ -98,12 +98,19 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     uint8_t priority;                   /* Priority. */
-//    enum priority_donee_status donee_status;                   /* Priority. */
+    
+    /* additional members required to facilitate priority donation */
     uint8_t donee_priority;             /* store the donee's original priority here; this helps with cases where the donee receives multiple priority donations */
     uint8_t original_priority;
     struct thread* donee_thread;        /* this helps us with nested priority donations */ 
-    struct list_elem allelem;           /* List element for all threads list. */
     uint32_t number_of_donors;
+    
+    /* mlfq scheduler reqs */
+    int8_t nice_value;
+    int32_t recent_cpu;
+    int32_t recent_cpu_old;
+    
+    struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c &timer.c . */
     struct list_elem elem;              /* List element. */
@@ -162,6 +169,9 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_compute_mlfqs_priority( struct thread* thread_ptr );
+
 
 void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread);
 bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux);

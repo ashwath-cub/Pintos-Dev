@@ -15,7 +15,7 @@
 
 #define ADD_INT_TO_FIXED_POINT_VALUE(x, n)                          x + ( n << SHIFT_VALUE_REQUIRED_TO_MULTIPLE_OR_DIVIDE_SCALING_FACTOR )
                                                     
-#define SUBTRACT_INT_TO_FIXED_POINT_VALUE(x, n)                     x - ( n << SHIFT_VALUE_REQUIRED_TO_MULTIPLE_OR_DIVIDE_SCALING_FACTOR )
+#define SUBTRACT_INT_FROM_FIXED_POINT_VALUE(x, n)                     x - ( n << SHIFT_VALUE_REQUIRED_TO_MULTIPLE_OR_DIVIDE_SCALING_FACTOR )
 
 #define MULTIPLY_FIXED_POINT_VALUES(x, y)                           ( ( (int32_t)x ) * y ) >> SHIFT_VALUE_REQUIRED_TO_MULTIPLE_OR_DIVIDE_SCALING_FACTOR
 

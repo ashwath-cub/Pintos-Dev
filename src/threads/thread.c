@@ -21,9 +21,17 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
+#define NUMBER_OF_PRIORITIES_IN_MLFQS_SCHEDULER       64
+#define NUMBER_OF_READY_QUEUES_IN_MLFQS_SCHEDULER     NUMBER_OF_PRIORITIES_IN_MLFQS_SCHEDULER
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 struct list ready_list={0};
+
+/* List of processes in THREAD_READY state, that is, processes
+   that are ready to run but not actually running. */
+struct list ready_list_mlfqs[64]={0};
+
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -57,6 +65,7 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
+static 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -91,10 +100,23 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
-
+  uint8_t ready_list_init_index;
   lock_init (&tid_lock);
-  list_init (&ready_list);
   list_init (&all_list);
+
+  if( thread_mlfqs == true )
+  {
+    // initialize all 64 ready queues for mlfqs
+    for( ready_list_init_index = 0; ready_list_init_index<NUMBER_OF_READY_QUEUES_IN_MLFQS_SCHEDULER ;ready_list_init_index++)
+    {
+      list_init( &ready_list_mlfqs[ ready_list_init_index ] );
+    }
+  }
+  else
+  {
+    list_init (&ready_list);
+  }
+
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -142,7 +164,7 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
-
+  int64_t timer_ticks_since_os_booted = timer_ticks() ;
   /* Update statistics. */
   if (t == idle_thread)
     idle_ticks++;
@@ -151,7 +173,26 @@ thread_tick (void)
     user_ticks++;
 #endif
   else
+  {
     kernel_ticks++;
+
+    /* update recent_cpu for current thread */
+  }
+
+  if( timer_ticks_since_os_booted % TIMER_FREQ == 0 )
+  {
+    /* update mlfqs load_avg */
+    
+    /* update recent_cpu for all threads */
+  }
+
+  if( timer_ticks_since_os_booted % TIME_SLICE == 0 )
+  {
+    /* recompute priority for every thread whose recent_cpu value has changed */
+    /* set old recent cpu value to new one */
+    
+  }
+
 
   /* check to see if sleeping threads need to be woken up*/
   if(!list_empty(&sleeping_threads))
@@ -422,7 +463,7 @@ void thread_foreach_inlist(struct list* thread_list, thread_action_func_return_n
   }
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority to NEW_PRIORITY. NOP for mlfqs */
 void
 thread_set_priority (int new_priority) 
 {
@@ -455,6 +496,7 @@ thread_set_priority (int new_priority)
       }
     }
   }
+  // NOP for mlfqs
   
 }
 
@@ -465,11 +507,18 @@ thread_get_priority (void)
   return thread_current ()->priority;
 }
 
-/* Sets the current thread's nice value to NICE. */
+/* Sets the current thread's nice value to new nice and recalculates the thread's priority
+based on the new value (see Section B.2 [Calculating Priority], page 91). If the
+running thread no longer has the highest priority, yields.*/
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
-  /* Not yet implemented. */
+  struct thread* current_thread= thread_current();
+
+  current_thread->nice_value = (int8_t)nice;
+
+  thread_compute_mlfqs_priority( current_thread );
+
 }
 
 /* Returns the current thread's nice value. */
@@ -544,7 +593,7 @@ kernel_thread (thread_func *function, void *aux)
   function (aux);       /* Execute the thread function. */
   thread_exit ();       /* If function() returns, kill the thread. */
 }
-
+
 /* Returns the running thread. */
 struct thread *
 running_thread (void) 
@@ -566,13 +615,19 @@ is_thread (struct thread *t)
   return t != NULL && t->magic == THREAD_MAGIC;
 }
 
+/* function to compute cmlfqs priority for thread */
+void thread_compute_mlfqs_priority( struct thread* thread_ptr )
+{
+  return;
+}
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
-
+  struct thread* current_thread = thread_current();
+  
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
@@ -590,6 +645,24 @@ init_thread (struct thread *t, const char *name, int priority)
     t->number_of_donors = 0;
     //t->donee_status = PRIORITY_NON_DONEE;
     t->donee_thread=NULL;
+  }
+  else
+  {
+    // 
+    // recent_cpu and nice value for initial thread is 0; other threads inherit these value from parents
+    if( t == initial_thread )
+    {
+      t->nice_value = 0;
+      t->recent_cpu = 0;
+    }
+    else
+    {
+      t->nice_value = current_thread->nice_value ;
+      t->recent_cpu = current_thread->recent_cpu ;
+    }
+
+    // now compute priority
+    thread_compute_mlfqs_priority( t ); 
   }
 
   t->magic = THREAD_MAGIC;
