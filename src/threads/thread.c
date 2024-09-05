@@ -65,7 +65,10 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
-static 
+
+
+static volatile uint32_t load_avg;
+static volatile uint32_t ready_threads;
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -177,6 +180,7 @@ thread_tick (void)
     kernel_ticks++;
 
     /* update recent_cpu for current thread */
+    t->recent_cpu++;
   }
 
   if( timer_ticks_since_os_booted % TIMER_FREQ == 0 )
@@ -615,11 +619,78 @@ is_thread (struct thread *t)
   return t != NULL && t->magic == THREAD_MAGIC;
 }
 
-/* function to compute cmlfqs priority for thread */
+/* function to compute mlfqs priority for thread */
 void thread_compute_mlfqs_priority( struct thread* thread_ptr )
 {
-  return;
+  int32_t priority_in_fixed_point;
+  uint32_t priority_after_rounding ;
+  // TODO: rethink if we should retain just always retain values in fixed point 
+  int32_t recent_cpu_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->recent_cpu) ;
+  int32_t recent_cpu_times_coefficient_for_priority_computation = recent_cpu_in_fixed_point >> 2 ; // divide recent cpu fixed point value by 4
+  int32_t nice_value_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->nice_value);
+  int32_t nice_value_times_coefficient_for_priority_computation = nice_value_in_fixed_point << 1 ; // nice value times 2
+  int32_t priority_max_value_in_fixed_point = GET_FIXED_POINT_OF_NUM(PRI_MAX) ;
+
+  priority_in_fixed_point = priority_max_value_in_fixed_point - recent_cpu_times_coefficient_for_priority_computation - nice_value_times_coefficient_for_priority_computation;
+
+  // if value is negative, clamp to 0
+  // if value after rounding is greater than PRI_MAX, clamp to PRI_MAX
+  if ( priority_in_fixed_point < 0 )
+  {
+    thread_ptr->priority = 0 ;
+  }
+  else
+  {
+    priority_after_rounding = GET_POSITIVE_INTEGER_FROM_FIXED_POINT( priority_in_fixed_point ) ;
+    if (priority_after_rounding > PRI_MAX)
+    {
+      thread_ptr->priority = PRI_MAX;
+    }
+    else
+    {
+      thread_ptr->priority = priority_after_rounding ;
+    }
+
+  }
 }
+
+/* function to compute recent_cpu for thread */
+void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr )
+{
+  int32_t recent_cpu_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->recent_cpu) ;
+  uint32_t load_avg_in_fixed_point = GET_FIXED_POINT_OF_NUM(load_avg);
+  int32_t twice_load_avg_in_fixed_point = load_avg_in_fixed_point << 1;
+  int64_t temp_result = MULTIPLY_FIXED_POINT_VALUES(twice_load_avg_in_fixed_point,recent_cpu_in_fixed_point);
+  // TODO: Check temp result
+  int32_t recent_cpu_times_twice_load_avg_in_fixed_pt = (int32_t)temp_result;
+  int32_t twice_load_avg_in_fixed_point_plus_1 = ADD_INT_TO_FIXED_POINT_VALUE(twice_load_avg_in_fixed_point,1);
+  temp_result = DIVIDE_FIXED_POINT_VALUES(recent_cpu_times_twice_load_avg_in_fixed_pt,twice_load_avg_in_fixed_point_plus_1);
+  // TODO: Check temp result
+  int32_t recent_cpu_times_coefficient_for_recent_cpu_computation = (int32_t)temp_result;
+  recent_cpu_in_fixed_point = ADD_INT_TO_FIXED_POINT_VALUE(recent_cpu_times_coefficient_for_recent_cpu_computation, thread_ptr->nice_value);
+  
+  if(recent_cpu_in_fixed_point >= 0 )
+  {  
+    thread_ptr->recent_cpu = GET_POSITIVE_INTEGER_FROM_FIXED_POINT( recent_cpu_in_fixed_point );
+  }
+  else
+  {
+    thread_ptr->recent_cpu = GET_NEGATIVE_INTEGER_FROM_FIXED_POINT( recent_cpu_in_fixed_point );
+  }
+
+}
+
+/* function to compute recent_cpu for thread */
+void compute_load_avg_for_mlfqs( void )
+{
+  uint32_t load_avg_in_fixed_point = GET_FIXED_POINT_OF_NUM(load_avg);
+  uint32_t fiftynine_over_sixty_times_load_avg_in_fixed_point = ((uint64_t)(59*load_avg_in_fixed_point))/60;
+  uint32_t ready_threads_over_sixty_in_fixedpoint = (GET_FIXED_POINT_OF_NUM(ready_threads)) / 60 ;
+  load_avg_in_fixed_point = fiftynine_over_sixty_times_load_avg_in_fixed_point + ready_threads_over_sixty_in_fixedpoint ;
+  
+  load_avg = GET_POSITIVE_INTEGER_FROM_FIXED_POINT( load_avg_in_fixed_point );
+}
+
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void
