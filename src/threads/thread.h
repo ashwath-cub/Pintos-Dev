@@ -131,6 +131,7 @@ struct thread
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
+extern volatile uint32_t ready_threads;
 #define SCHED_PRIORITY_PREMPTIVE 1
 #define SCHED_POLICY SCHED_PRIORITY_PREMPTIVE
 
@@ -176,9 +177,9 @@ void thread_compute_mlfqs_priority( struct thread* thread_ptr );
 
 void thread_recompute_priority_if_recent_cpu_changed( struct thread* thread_ptr, void* aux UNUSED );
 void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSED );
-void compute_load_avg_for_mlfqs( void );
+void compute_load_average_for_mlfqs( void );
 
-void thread_place_on_ready_list_per_sched_policy(struct list* resource_list, struct list_elem* thread);
+void thread_place_on_ready_list_per_sched_policy(struct list_elem* thread);
 bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux);
 
 #endif /* threads/thread.h */

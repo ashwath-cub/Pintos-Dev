@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#define SCALING_FACTOR                                              128
-#define LOG_BASE2_OF_SCALING_FACTOR                                 7
+#define SCALING_FACTOR                                              1024
+#define LOG_BASE2_OF_SCALING_FACTOR                                 10
 #define SHIFT_VALUE_REQUIRED_TO_MULTIPLY_OR_DIVIDE_SCALING_FACTOR   LOG_BASE2_OF_SCALING_FACTOR
 
 #define GET_FIXED_POINT_OF_NUM(x)                             ( x << SHIFT_VALUE_REQUIRED_TO_MULTIPLY_OR_DIVIDE_SCALING_FACTOR )

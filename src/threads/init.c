@@ -37,7 +37,7 @@
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
 #endif
-
+#include "fixed_point.h"
 /* Page directory with kernel mappings only. */
 uint32_t *init_page_dir;
 
@@ -128,7 +128,7 @@ main (void)
 #endif
 
   printf ("Boot complete.\n");
-  
+  //ready_threads = ADD_INT_TO_FIXED_POINT_VALUE(ready_threads, 1);
   /* Run actions specified on kernel command line. */
   run_actions (argv);
 

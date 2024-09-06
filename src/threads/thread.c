@@ -68,8 +68,8 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
 
 
-static volatile uint32_t load_avg;
-static volatile uint32_t ready_threads;
+static volatile uint32_t load_average=0;
+volatile uint32_t ready_threads=0;
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -190,8 +190,8 @@ thread_tick (void)
   {
     if( timer_ticks_since_os_booted % TIMER_FREQ == 0 )
     {
-      /* update mlfqs load_avg */
-      compute_load_avg_for_mlfqs( );
+      /* update mlfqs load_average */
+      compute_load_average_for_mlfqs( );
 
       /* update recent_cpu for all threads */
       thread_foreach(thread_compute_mlfqs_recent_cpu, NULL);
@@ -290,7 +290,12 @@ thread_block (void)
 {
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
-
+  if( running_thread()!=idle_thread )
+  {
+    ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
+  }
+  
+  
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -308,6 +313,7 @@ thread_sleep(void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   thread_current ()->status = THREAD_SLEEPING;
+  ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
   schedule ();
 }
 
@@ -330,13 +336,20 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED||t->status == THREAD_SLEEPING);
   struct thread *cur = thread_current ();
-  thread_place_on_ready_list_per_sched_policy(&ready_list, &t->elem);
+  // during init; this code will be executed before the idle_thread's function handler executes and sets the idle thread variable
+  // this is fine. 
+  if(cur!=idle_thread)
+  {
+    ready_threads = ADD_INT_TO_FIXED_POINT_VALUE(ready_threads, 1);
+  }
+  
+  thread_place_on_ready_list_per_sched_policy(&t->elem);
   t->status = THREAD_READY;
   if(cur->priority<=t->priority)
   {
     if (cur != idle_thread) 
     {
-      thread_place_on_ready_list_per_sched_policy(&ready_list, &cur->elem);
+      thread_place_on_ready_list_per_sched_policy(&cur->elem);
       cur->status = THREAD_READY;
       schedule ();
     }
@@ -388,6 +401,7 @@ thread_exit (void)
   process_exit ();
 #endif
 
+  ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -410,7 +424,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    thread_place_on_ready_list_per_sched_policy(&ready_list, &cur->elem);
+    thread_place_on_ready_list_per_sched_policy(&cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -433,20 +447,20 @@ bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA,
 }
 
 
-void thread_place_on_ready_list_per_sched_policy(struct list* ready_list, struct list_elem* thread)
+void thread_place_on_ready_list_per_sched_policy(struct list_elem* thread)
 {
   struct thread * thread_ptr;
 
   if( thread_mlfqs == false )
   {
-    list_insert_ordered(ready_list, thread, is_thread_from_list_elemA_high_priority, NULL);
+    list_insert_ordered(&ready_list, thread, is_thread_from_list_elemA_high_priority, NULL);
   }
   else
   {
     // TODO:
     // special handling for ready list for mlfq case
     thread_ptr = list_entry(thread, struct thread, elem);
-    list_push_back(&ready_list[thread_ptr->priority], thread);
+    list_push_back(&ready_list_mlfqs[thread_ptr->priority], thread);
   }
 }
 
@@ -545,24 +559,27 @@ thread_set_nice (int nice)
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  struct thread* current_thread= thread_current();
+
+  return current_thread->nice_value;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  int load_average_integer_times_hundred = GET_POSITIVE_INTEGER_FROM_FIXED_POINT(load_average);
+  load_average_integer_times_hundred = load_average_integer_times_hundred * 100;
+  return load_average_integer_times_hundred;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  struct thread* current_thread= thread_current();
+  int recent_cpu_times_100 = current_thread->recent_cpu;
+  return recent_cpu_times_100;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -683,13 +700,13 @@ void thread_compute_mlfqs_priority( struct thread* thread_ptr )
 void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSED )
 {
   int32_t recent_cpu_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->recent_cpu) ;
-  uint32_t load_avg_in_fixed_point = GET_FIXED_POINT_OF_NUM(load_avg);
-  int32_t twice_load_avg_in_fixed_point = load_avg_in_fixed_point << 1;
-  int64_t temp_result = MULTIPLY_FIXED_POINT_VALUES(twice_load_avg_in_fixed_point,recent_cpu_in_fixed_point);
+  uint32_t load_average_in_fixed_point = GET_FIXED_POINT_OF_NUM(load_average);
+  int32_t twice_load_average_in_fixed_point = load_average_in_fixed_point << 1;
+  int64_t temp_result = MULTIPLY_FIXED_POINT_VALUES(twice_load_average_in_fixed_point,recent_cpu_in_fixed_point);
   // TODO: Check temp result
-  int32_t recent_cpu_times_twice_load_avg_in_fixed_pt = (int32_t)temp_result;
-  int32_t twice_load_avg_in_fixed_point_plus_1 = ADD_INT_TO_FIXED_POINT_VALUE(twice_load_avg_in_fixed_point,1);
-  temp_result = DIVIDE_FIXED_POINT_VALUES(recent_cpu_times_twice_load_avg_in_fixed_pt,twice_load_avg_in_fixed_point_plus_1);
+  int32_t recent_cpu_times_twice_load_average_in_fixed_pt = (int32_t)temp_result;
+  int32_t twice_load_average_in_fixed_point_plus_1 = ADD_INT_TO_FIXED_POINT_VALUE(twice_load_average_in_fixed_point,1);
+  temp_result = DIVIDE_FIXED_POINT_VALUES(recent_cpu_times_twice_load_average_in_fixed_pt,twice_load_average_in_fixed_point_plus_1);
   // TODO: Check temp result
   int32_t recent_cpu_times_coefficient_for_recent_cpu_computation = (int32_t)temp_result;
   recent_cpu_in_fixed_point = ADD_INT_TO_FIXED_POINT_VALUE(recent_cpu_times_coefficient_for_recent_cpu_computation, thread_ptr->nice_value);
@@ -704,16 +721,17 @@ void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSE
   }
 
 }
-
+uint32_t load_average_record[2][50];
 /* function to compute recent_cpu for thread */
-void compute_load_avg_for_mlfqs( void )
+void compute_load_average_for_mlfqs( void )
 {
-  uint32_t load_avg_in_fixed_point = GET_FIXED_POINT_OF_NUM(load_avg);
-  uint32_t fiftynine_over_sixty_times_load_avg_in_fixed_point = ((uint64_t)(59*load_avg_in_fixed_point))/60;
-  uint32_t ready_threads_over_sixty_in_fixedpoint = (GET_FIXED_POINT_OF_NUM(ready_threads)) / 60 ;
-  load_avg_in_fixed_point = fiftynine_over_sixty_times_load_avg_in_fixed_point + ready_threads_over_sixty_in_fixedpoint ;
-  
-  load_avg = GET_POSITIVE_INTEGER_FROM_FIXED_POINT( load_avg_in_fixed_point );
+  //static uint32_t index;
+  uint32_t fiftynine_times_load_average_in_fixed_point = ((59*load_average));
+  uint32_t load_average_numerator = (fiftynine_times_load_average_in_fixed_point + ready_threads);
+  load_average=load_average_numerator/60;
+  /*load_average_record[0][index]=1;
+  load_average_record[1][index]=load_average;
+  index++;*/  
 }
 
 /* Does basic initialization of T as a blocked thread named
@@ -790,10 +808,44 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
-    return idle_thread;
+  int8_t ready_list_mlfqs_index;
+  struct thread * next_thread;
+  bool ready_list_nonempty = false ; 
+  if ( thread_mlfqs )
+  {
+    // traverse through the list array to find first non empty list entry starting from PRI_MAX
+    for( ready_list_mlfqs_index =  PRI_MAX; ready_list_mlfqs_index >=0 ; ready_list_mlfqs_index-- )
+    {
+      if( !list_empty(&ready_list_mlfqs[ready_list_mlfqs_index]) )
+      {
+        ready_list_nonempty = true;
+        break;
+      }
+    }
+
+    if( ready_list_nonempty )
+    {
+      next_thread = list_entry (list_pop_front (&ready_list_mlfqs[ready_list_mlfqs_index]), struct thread, elem);
+    }
+    else
+    {
+
+      next_thread = idle_thread;
+    }
+
+  }
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  {
+    if (list_empty (&ready_list))
+    {
+      next_thread = idle_thread;
+    }
+    else 
+    {
+      next_thread = list_entry (list_pop_front (&ready_list), struct thread, elem);
+    }
+  }
+  return next_thread;
 }
 
 /* Completes a thread switch by activating the new thread's page

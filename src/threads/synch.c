@@ -212,11 +212,10 @@ void handle_priority_donation(struct lock *lock)
     // re-add to the queue in which it is placed
     if(lock_holder_thread_ptr->status==THREAD_READY)
     {
-      
 
       list_remove(&lock_holder_thread_ptr->elem);
       //add to ready list according to new priority
-      thread_place_on_ready_list_per_sched_policy(&ready_list, &lock_holder_thread_ptr->elem);  
+      thread_place_on_ready_list_per_sched_policy(&lock_holder_thread_ptr->elem);  
     }
     else if(lock_holder_thread_ptr->status==THREAD_BLOCKED)
     {
