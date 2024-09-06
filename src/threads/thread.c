@@ -12,6 +12,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "devices/timer.h"
+#include "fixed_point.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -178,25 +179,30 @@ thread_tick (void)
   else
   {
     kernel_ticks++;
-
-    /* update recent_cpu for current thread */
-    t->recent_cpu++;
+    if( thread_mlfqs )
+    {
+      /* update recent_cpu for current thread */
+      t->recent_cpu++;
+    }
   }
 
-  if( timer_ticks_since_os_booted % TIMER_FREQ == 0 )
+  if( thread_mlfqs )
   {
-    /* update mlfqs load_avg */
-    
-    /* update recent_cpu for all threads */
-  }
+    if( timer_ticks_since_os_booted % TIMER_FREQ == 0 )
+    {
+      /* update mlfqs load_avg */
+      compute_load_avg_for_mlfqs( );
 
-  if( timer_ticks_since_os_booted % TIME_SLICE == 0 )
-  {
-    /* recompute priority for every thread whose recent_cpu value has changed */
-    /* set old recent cpu value to new one */
-    
-  }
+      /* update recent_cpu for all threads */
+      thread_foreach(thread_compute_mlfqs_recent_cpu, NULL);
+    }
 
+    if( timer_ticks_since_os_booted % TIME_SLICE == 0 )
+    {
+      /* recompute priority for every thread whose recent_cpu value has changed */
+      thread_foreach(thread_recompute_priority_if_recent_cpu_changed, NULL);
+    }
+  }
 
   /* check to see if sleeping threads need to be woken up*/
   if(!list_empty(&sleeping_threads))
@@ -434,6 +440,11 @@ void thread_place_on_list_per_sched_policy(struct list* resource_list, struct li
   {
     list_insert_ordered(resource_list, thread, is_thread_from_list_elemA_high_priority, NULL);
   }
+  else
+  {
+    // TODO:
+    //special handling for ready list for mlfq case
+  }
 }
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -619,6 +630,15 @@ is_thread (struct thread *t)
   return t != NULL && t->magic == THREAD_MAGIC;
 }
 
+void thread_recompute_priority_if_recent_cpu_changed( struct thread* thread_ptr, void* aux UNUSED )
+{
+  if(thread_ptr->recent_cpu!=thread_ptr->recent_cpu_old)
+  {
+    thread_compute_mlfqs_priority(thread_ptr);
+    thread_ptr->recent_cpu_old = thread_ptr->recent_cpu;
+  }
+}
+
 /* function to compute mlfqs priority for thread */
 void thread_compute_mlfqs_priority( struct thread* thread_ptr )
 {
@@ -655,7 +675,7 @@ void thread_compute_mlfqs_priority( struct thread* thread_ptr )
 }
 
 /* function to compute recent_cpu for thread */
-void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr )
+void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSED )
 {
   int32_t recent_cpu_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->recent_cpu) ;
   uint32_t load_avg_in_fixed_point = GET_FIXED_POINT_OF_NUM(load_avg);
@@ -697,7 +717,7 @@ static void
 init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
-  struct thread* current_thread = thread_current();
+  struct thread* current_thread;
   
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
@@ -719,7 +739,7 @@ init_thread (struct thread *t, const char *name, int priority)
   }
   else
   {
-    // 
+    current_thread = running_thread(); 
     // recent_cpu and nice value for initial thread is 0; other threads inherit these value from parents
     if( t == initial_thread )
     {

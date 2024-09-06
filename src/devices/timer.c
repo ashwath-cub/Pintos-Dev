@@ -93,8 +93,8 @@ timer_sleep (int64_t ticks)
   // set sleep time and block thread
   struct  thread* current_thread = thread_current( );
   current_thread->elapsed_sleep_time = 0;
-  current_thread->sleep_time = ticks ;
   enum intr_level old_level = intr_disable ();
+  current_thread->sleep_time = ticks ;
   list_push_back(&sleeping_threads, &current_thread->elem);
   thread_sleep();
   intr_set_level(old_level);

@@ -257,7 +257,7 @@ void reset_priority_donation(struct lock *lock)
   {
     // scan all threads waiting on the lock to see who donated
     // in case of multiple donations associated with different locks, handle for the lock in consideration here
-    // when all the locks is released 
+    // when all the locks are released, the system will be reset aptly 
     // (NOTE: key here is that it shouldnt be reset to it's original priority carelessly)
 
     for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
@@ -269,13 +269,11 @@ void reset_priority_donation(struct lock *lock)
         //match found; reset value in donor thread
         t->donee_thread = NULL;
         current_thread->number_of_donors --;
-        match_found = true;
       }
 
       if (current_thread->priority == t->priority )
       {
-        current_thread->priority = t->donee_priority;
-        
+        current_thread->priority = t->donee_priority;        
       }
     }
   

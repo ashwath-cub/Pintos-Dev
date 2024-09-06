@@ -159,8 +159,10 @@ void thread_yield (void);
 typedef struct list_elem* thread_action_func_return_next (struct thread *t, void *aux);
 typedef void thread_action_func(struct thread *t, void *aux);
 
-void thread_foreach (thread_action_func *, void *);
+void thread_foreach(thread_action_func *, void *);
 void thread_foreach_inlist(struct list* thread_list, thread_action_func_return_next *func, void *aux);
+
+void thread_sleep(void); 
 
 int thread_get_priority (void);
 void thread_set_priority (int);
@@ -172,6 +174,9 @@ int thread_get_load_avg (void);
 
 void thread_compute_mlfqs_priority( struct thread* thread_ptr );
 
+void thread_recompute_priority_if_recent_cpu_changed( struct thread* thread_ptr, void* aux UNUSED );
+void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSED );
+void compute_load_avg_for_mlfqs( void );
 
 void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread);
 bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux);
