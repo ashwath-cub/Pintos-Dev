@@ -68,7 +68,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
   {
-    thread_place_on_list_per_sched_policy(&sema->waiters, &thread_current ()->elem);
+    list_insert_ordered(&sema->waiters, &thread_current ()->elem, is_thread_from_list_elemA_high_priority, NULL);
     thread_block ();
   }
   sema->value--;
@@ -216,14 +216,14 @@ void handle_priority_donation(struct lock *lock)
 
       list_remove(&lock_holder_thread_ptr->elem);
       //add to ready list according to new priority
-      thread_place_on_list_per_sched_policy(&ready_list, &lock_holder_thread_ptr->elem);  
+      thread_place_on_ready_list_per_sched_policy(&ready_list, &lock_holder_thread_ptr->elem);  
     }
     else if(lock_holder_thread_ptr->status==THREAD_BLOCKED)
     {
       list_head = list_head_given_interior_elem(&lock_holder_thread_ptr->elem);
       resource_list= (struct list*)list_head;
       list_remove(&lock_holder_thread_ptr->elem);
-      thread_place_on_list_per_sched_policy(resource_list, &lock_holder_thread_ptr->elem);
+      list_insert_ordered(resource_list, &lock_holder_thread_ptr->elem, is_thread_from_list_elemA_high_priority, NULL);
     }
 
     lock_holder_thread_ptr = lock_holder_thread_ptr->donee_thread;
@@ -236,7 +236,7 @@ void handle_priority_donation(struct lock *lock)
   
   while (lock->semaphore.value==0) 
   {
-    thread_place_on_list_per_sched_policy(&lock->semaphore.waiters, &thread_current ()->elem);
+    list_insert_ordered(&lock->semaphore.waiters, &thread_current ()->elem, is_thread_from_list_elemA_high_priority, NULL);
     thread_block();
   }
   lock->holder=thread_current();

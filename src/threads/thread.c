@@ -330,13 +330,13 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED||t->status == THREAD_SLEEPING);
   struct thread *cur = thread_current ();
-  thread_place_on_list_per_sched_policy(&ready_list, &t->elem);
+  thread_place_on_ready_list_per_sched_policy(&ready_list, &t->elem);
   t->status = THREAD_READY;
   if(cur->priority<=t->priority)
   {
     if (cur != idle_thread) 
     {
-      thread_place_on_list_per_sched_policy(&ready_list, &cur->elem);
+      thread_place_on_ready_list_per_sched_policy(&ready_list, &cur->elem);
       cur->status = THREAD_READY;
       schedule ();
     }
@@ -410,7 +410,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    thread_place_on_list_per_sched_policy(&ready_list, &cur->elem);
+    thread_place_on_ready_list_per_sched_policy(&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -433,19 +433,24 @@ bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA,
 }
 
 
-void thread_place_on_list_per_sched_policy(struct list* resource_list, struct list_elem* thread)
+void thread_place_on_ready_list_per_sched_policy(struct list* ready_list, struct list_elem* thread)
 {
+  struct thread * thread_ptr;
 
   if( thread_mlfqs == false )
   {
-    list_insert_ordered(resource_list, thread, is_thread_from_list_elemA_high_priority, NULL);
+    list_insert_ordered(ready_list, thread, is_thread_from_list_elemA_high_priority, NULL);
   }
   else
   {
     // TODO:
-    //special handling for ready list for mlfq case
+    // special handling for ready list for mlfq case
+    thread_ptr = list_entry(thread, struct thread, elem);
+    list_push_back(&ready_list[thread_ptr->priority], thread);
   }
 }
+
+
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void
