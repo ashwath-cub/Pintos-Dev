@@ -31,6 +31,8 @@ static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
 struct list sleeping_threads;
+static struct lock sleep_list_lock;
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -39,6 +41,7 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init(&sleeping_threads);
+  lock_init( &sleep_list_lock );
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -86,6 +89,7 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+
 /* Sleeps for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) 
@@ -93,11 +97,11 @@ timer_sleep (int64_t ticks)
   // set sleep time and block thread
   struct  thread* current_thread = thread_current( );
   current_thread->elapsed_sleep_time = 0;
-  enum intr_level old_level = intr_disable ();
   current_thread->sleep_time = ticks ;
+  lock_acquire(&sleep_list_lock);
   list_push_back(&sleeping_threads, &current_thread->elem);
+  lock_release(&sleep_list_lock);
   thread_sleep();
-  intr_set_level(old_level);
 
 }
 
