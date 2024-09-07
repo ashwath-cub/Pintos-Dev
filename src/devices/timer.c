@@ -7,7 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-  
+#include "threads/fixed_point.h"  
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -98,11 +98,11 @@ timer_sleep (int64_t ticks)
   struct  thread* current_thread = thread_current( );
   current_thread->elapsed_sleep_time = 0;
   current_thread->sleep_time = ticks ;
-  lock_acquire(&sleep_list_lock);
+  enum intr_level old_level = intr_disable();
   list_push_back(&sleeping_threads, &current_thread->elem);
-  lock_release(&sleep_list_lock);
+  ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
   thread_sleep();
-
+  intr_set_level(old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

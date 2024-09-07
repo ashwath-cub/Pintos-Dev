@@ -97,7 +97,7 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    uint8_t priority;                   /* Priority. */
+    int32_t priority;                   /* Priority. */
     
     /* additional members required to facilitate priority donation */
     uint8_t donee_priority;             /* store the donee's original priority here; this helps with cases where the donee receives multiple priority donations */
