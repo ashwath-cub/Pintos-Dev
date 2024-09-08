@@ -188,7 +188,10 @@ thread_tick (void)
   if( thread_mlfqs )
   {
     /* update recent_cpu for current thread */
-    t->recent_cpu++;
+    if(t!=idle_thread)
+    {
+      t->recent_cpu = ADD_INT_TO_FIXED_POINT_VALUE((t->recent_cpu), 1);
+    }
     if( timer_ticks_since_os_booted % TIMER_FREQ == 0 )
     {
       /* update mlfqs load_average */
@@ -593,18 +596,18 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  int load_average_integer_times_hundred = GET_POSITIVE_INTEGER_FROM_FIXED_POINT(load_average);
-  load_average_integer_times_hundred = load_average_integer_times_hundred * 100;
-  return load_average_integer_times_hundred;
+  // multiply fixed point value by 100 before converting to integer 
+  // as opposed to conversion first and then multiplication
+  // this helps us retain precision  
+  return GET_POSITIVE_INTEGER_FROM_FIXED_POINT((load_average*100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
-thread_get_recent_cpu (void) 
+thread_get_recent_cpu(void) 
 {
-  struct thread* current_thread= thread_current();
-  int recent_cpu_times_100 = current_thread->recent_cpu;
-  return recent_cpu_times_100;
+  int32_t thread_recent_cpu_fixed_point = thread_current()->recent_cpu;
+  return ( thread_recent_cpu_fixed_point >= 0 ) ? GET_POSITIVE_INTEGER_FROM_FIXED_POINT((thread_recent_cpu_fixed_point*100)) : GET_NEGATIVE_INTEGER_FROM_FIXED_POINT((thread_recent_cpu_fixed_point*100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -699,10 +702,10 @@ void thread_compute_mlfqs_priority( struct thread* thread_ptr )
 /* function to compute recent_cpu for thread */
 void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSED )
 {
-  int32_t recent_cpu_coefficient_fixed_pt = DIVIDE_FIXED_POINT_VALUES( ( load_average<<1 ), (ADD_INT_TO_FIXED_POINT_VALUE( ( load_average << 1 ), 1 )) );
-
-  thread_ptr->recent_cpu = ADD_INT_TO_FIXED_POINT_VALUE((MULTIPLY_FIXED_POINT_VALUES( recent_cpu_coefficient_fixed_pt, thread_ptr->recent_cpu)), thread_ptr->nice_value );
-  
+  //int32_t recent_cpu_coefficient_fixed_pt = DIVIDE_FIXED_POINT_VALUES( ( load_average<<1 ), (ADD_INT_TO_FIXED_POINT_VALUE( ( load_average << 1 ), 1 )) );
+  // TODO: try to keep it cleaner to see assembly generated; then optimize
+  int32_t recent_cpu_times_twice_load_avg = MULTIPLY_FIXED_POINT_VALUES( (load_average<<1), thread_ptr->recent_cpu );
+  thread_ptr->recent_cpu = ADD_INT_TO_FIXED_POINT_VALUE( ( DIVIDE_FIXED_POINT_VALUES( ( recent_cpu_times_twice_load_avg ), ( ADD_INT_TO_FIXED_POINT_VALUE( (load_average<<1) , 1 ) ) ) ), (thread_ptr->nice_value) ) ;
 }
 
 /* function to compute recent_cpu for thread */
