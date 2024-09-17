@@ -95,18 +95,11 @@ timer_sleep (int64_t ticks)
   current_thread->elapsed_sleep_time = 0;
   enum intr_level old_level = intr_disable ();
   current_thread->sleep_time = ticks ;
-<<<<<<< HEAD
-  list_push_back(&sleeping_threads, &current_thread->elem);
-  thread_sleep();
-  intr_set_level(old_level);
-
-=======
   enum intr_level old_level = intr_disable();
   list_push_back(&sleeping_threads, &current_thread->elem);
   ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
   thread_sleep();
   intr_set_level(old_level);
->>>>>>> 9de1a1a
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
