@@ -70,6 +70,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
 static volatile uint32_t load_average=0;
 volatile uint32_t ready_threads=0;
+struct lock ready_threads_lock;
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -115,6 +116,7 @@ thread_init (void)
     {
       list_init( &ready_list_mlfqs[ ready_list_init_index ] );
     }
+    lock_init(&ready_threads_lock);
   }
   else
   {
@@ -157,7 +159,9 @@ static struct list_elem* wakeup_sleeping_thread_if_its_time_return_next(struct t
     list_remove(&t->elem);
     t->elapsed_sleep_time=0;
     t->sleep_time=0;
-    thread_unblock(t);
+    t->status =  THREAD_READY ;
+    thread_place_on_ready_list_per_sched_policy( &t->elem );
+    ready_threads = ADD_INT_TO_FIXED_POINT_VALUE(ready_threads, 1);
   }
   return next_elem;
 }
@@ -179,15 +183,15 @@ thread_tick (void)
   else
   {
     kernel_ticks++;
-    if( thread_mlfqs )
-    {
-      /* update recent_cpu for current thread */
-      t->recent_cpu++;
-    }
   }
 
   if( thread_mlfqs )
   {
+    /* update recent_cpu for current thread */
+    if(t!=idle_thread)
+    {
+      t->recent_cpu = ADD_INT_TO_FIXED_POINT_VALUE((t->recent_cpu), 1);
+    }
     if( timer_ticks_since_os_booted % TIMER_FREQ == 0 )
     {
       /* update mlfqs load_average */
@@ -302,19 +306,20 @@ thread_block (void)
 
 /* Puts the current thread to sleep while its timer expires.  
    It will not be scheduled again until awoken by thread_unblock().
-
-   This function must be called with interrupts turned off.  It
-   is usually a better idea to use one of the synchronization
-   primitives in synch.h. */
+   This function must be called with interrupts turned off.
+*/
 void
 thread_sleep(void) 
 {
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
-
+  
+  //lock_acquire( &ready_threads_lock );
+  
+  //lock_release( &ready_threads_lock );
   thread_current ()->status = THREAD_SLEEPING;
-  ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
-  schedule ();
+
+  schedule();
 }
 
 
@@ -400,12 +405,15 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-
-  ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
+  //lock_acquire(&ready_threads_lock);
+  //lock_release(&ready_threads_lock);
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+  ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
+
+  //TODO: Is a lock needed here?
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
@@ -450,7 +458,7 @@ bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA,
 void thread_place_on_ready_list_per_sched_policy(struct list_elem* thread)
 {
   struct thread * thread_ptr;
-
+  int32_t priority_after_rounding ;
   if( thread_mlfqs == false )
   {
     list_insert_ordered(&ready_list, thread, is_thread_from_list_elemA_high_priority, NULL);
@@ -460,7 +468,23 @@ void thread_place_on_ready_list_per_sched_policy(struct list_elem* thread)
     // TODO:
     // special handling for ready list for mlfq case
     thread_ptr = list_entry(thread, struct thread, elem);
-    list_push_back(&ready_list_mlfqs[thread_ptr->priority], thread);
+    // if value is negative, clamp to 0
+    // if value after rounding is greater than PRI_MAX, clamp to PRI_MAX
+    if ( thread_ptr->priority < 0 )
+    {
+      priority_after_rounding = 0;
+    }
+    else
+    {
+      // TODO: race condition investigation
+      priority_after_rounding = GET_POSITIVE_INTEGER_FROM_FIXED_POINT( thread_ptr->priority ) ;
+      
+      if ( priority_after_rounding > PRI_MAX )
+      {
+        priority_after_rounding = PRI_MAX;
+      }
+    }
+    list_push_back(&ready_list_mlfqs[priority_after_rounding], thread);
   }
 }
 
@@ -550,9 +574,13 @@ thread_set_nice (int nice)
   struct thread* current_thread= thread_current();
 
   current_thread->nice_value = (int8_t)nice;
-
+  uint8_t current_priority =  current_thread->priority; 
   thread_compute_mlfqs_priority( current_thread );
-
+  uint8_t new_priority = current_thread->priority;
+  if(new_priority < current_priority)
+  {
+    thread_yield();
+  }
 }
 
 /* Returns the current thread's nice value. */
@@ -568,18 +596,18 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  int load_average_integer_times_hundred = GET_POSITIVE_INTEGER_FROM_FIXED_POINT(load_average);
-  load_average_integer_times_hundred = load_average_integer_times_hundred * 100;
-  return load_average_integer_times_hundred;
+  // multiply fixed point value by 100 before converting to integer 
+  // as opposed to conversion first and then multiplication
+  // this helps us retain precision  
+  return GET_POSITIVE_INTEGER_FROM_FIXED_POINT((load_average*100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
-thread_get_recent_cpu (void) 
+thread_get_recent_cpu(void) 
 {
-  struct thread* current_thread= thread_current();
-  int recent_cpu_times_100 = current_thread->recent_cpu;
-  return recent_cpu_times_100;
+  int32_t thread_recent_cpu_fixed_point = thread_current()->recent_cpu;
+  return ( thread_recent_cpu_fixed_point >= 0 ) ? GET_POSITIVE_INTEGER_FROM_FIXED_POINT((thread_recent_cpu_fixed_point*100)) : GET_NEGATIVE_INTEGER_FROM_FIXED_POINT((thread_recent_cpu_fixed_point*100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -663,73 +691,30 @@ void thread_recompute_priority_if_recent_cpu_changed( struct thread* thread_ptr,
 
 /* function to compute mlfqs priority for thread */
 void thread_compute_mlfqs_priority( struct thread* thread_ptr )
-{
-  int32_t priority_in_fixed_point;
-  uint32_t priority_after_rounding ;
-  // TODO: rethink if we should retain just always retain values in fixed point 
-  int32_t recent_cpu_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->recent_cpu) ;
-  int32_t recent_cpu_times_coefficient_for_priority_computation = recent_cpu_in_fixed_point >> 2 ; // divide recent cpu fixed point value by 4
-  int32_t nice_value_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->nice_value);
-  int32_t nice_value_times_coefficient_for_priority_computation = nice_value_in_fixed_point << 1 ; // nice value times 2
-  int32_t priority_max_value_in_fixed_point = GET_FIXED_POINT_OF_NUM(PRI_MAX) ;
-
-  priority_in_fixed_point = priority_max_value_in_fixed_point - recent_cpu_times_coefficient_for_priority_computation - nice_value_times_coefficient_for_priority_computation;
-
-  // if value is negative, clamp to 0
-  // if value after rounding is greater than PRI_MAX, clamp to PRI_MAX
-  if ( priority_in_fixed_point < 0 )
-  {
-    thread_ptr->priority = 0 ;
-  }
-  else
-  {
-    priority_after_rounding = GET_POSITIVE_INTEGER_FROM_FIXED_POINT( priority_in_fixed_point ) ;
-    if (priority_after_rounding > PRI_MAX)
-    {
-      thread_ptr->priority = PRI_MAX;
-    }
-    else
-    {
-      thread_ptr->priority = priority_after_rounding ;
-    }
-
-  }
+{ 
+  /* Priority computation formula:  PRIORITY_MAX             -  recent_cpu/4                 -  nice x 2            */
+  /* retain priority in fixed point; convert to int when accessing the list ; this saves cycles */
+  thread_ptr->priority = ( GET_FIXED_POINT_OF_NUM(PRI_MAX) ) - (thread_ptr->recent_cpu >> 2) - (GET_FIXED_POINT_OF_NUM(thread_ptr->nice_value) << 1);
 }
+
+
 
 /* function to compute recent_cpu for thread */
 void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSED )
 {
-  int32_t recent_cpu_in_fixed_point = GET_FIXED_POINT_OF_NUM(thread_ptr->recent_cpu) ;
-  uint32_t load_average_in_fixed_point = GET_FIXED_POINT_OF_NUM(load_average);
-  int32_t twice_load_average_in_fixed_point = load_average_in_fixed_point << 1;
-  int64_t temp_result = MULTIPLY_FIXED_POINT_VALUES(twice_load_average_in_fixed_point,recent_cpu_in_fixed_point);
-  // TODO: Check temp result
-  int32_t recent_cpu_times_twice_load_average_in_fixed_pt = (int32_t)temp_result;
-  int32_t twice_load_average_in_fixed_point_plus_1 = ADD_INT_TO_FIXED_POINT_VALUE(twice_load_average_in_fixed_point,1);
-  temp_result = DIVIDE_FIXED_POINT_VALUES(recent_cpu_times_twice_load_average_in_fixed_pt,twice_load_average_in_fixed_point_plus_1);
-  // TODO: Check temp result
-  int32_t recent_cpu_times_coefficient_for_recent_cpu_computation = (int32_t)temp_result;
-  recent_cpu_in_fixed_point = ADD_INT_TO_FIXED_POINT_VALUE(recent_cpu_times_coefficient_for_recent_cpu_computation, thread_ptr->nice_value);
-  
-  if(recent_cpu_in_fixed_point >= 0 )
-  {  
-    thread_ptr->recent_cpu = GET_POSITIVE_INTEGER_FROM_FIXED_POINT( recent_cpu_in_fixed_point );
-  }
-  else
-  {
-    thread_ptr->recent_cpu = GET_NEGATIVE_INTEGER_FROM_FIXED_POINT( recent_cpu_in_fixed_point );
-  }
-
+  //int32_t recent_cpu_coefficient_fixed_pt = DIVIDE_FIXED_POINT_VALUES( ( load_average<<1 ), (ADD_INT_TO_FIXED_POINT_VALUE( ( load_average << 1 ), 1 )) );
+  // TODO: try to keep it cleaner to see assembly generated; then optimize
+  int32_t recent_cpu_times_twice_load_avg = MULTIPLY_FIXED_POINT_VALUES( (load_average<<1), thread_ptr->recent_cpu );
+  thread_ptr->recent_cpu = ADD_INT_TO_FIXED_POINT_VALUE( ( DIVIDE_FIXED_POINT_VALUES( ( recent_cpu_times_twice_load_avg ), ( ADD_INT_TO_FIXED_POINT_VALUE( (load_average<<1) , 1 ) ) ) ), (thread_ptr->nice_value) ) ;
 }
-uint32_t load_average_record[2][50];
+
 /* function to compute recent_cpu for thread */
 void compute_load_average_for_mlfqs( void )
 {
   //static uint32_t index;
-  uint32_t fiftynine_times_load_average_in_fixed_point = ((59*load_average));
-  uint32_t load_average_numerator = (fiftynine_times_load_average_in_fixed_point + ready_threads);
-  load_average=load_average_numerator/60;
-  /*load_average_record[0][index]=1;
+  load_average = ((59*load_average) + ready_threads)/60;
+  
+    /*load_average_record[0][index]=1;
   load_average_record[1][index]=load_average;
   index++;*/  
 }
