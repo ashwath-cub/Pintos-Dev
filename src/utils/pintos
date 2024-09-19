@@ -257,7 +257,7 @@ sub set_disk {
 sub find_disks {
     # Find kernel, if we don't already have one.
     if (!exists $parts{KERNEL}) {
-	my $name = find_file ('/home/ashwath_g/pintos/pintos/src/threads/build/kernel.bin');
+	my $name = find_file ('/home/ashwath_g/personal_projects/Pintos-Dev/src/userprog/build/kernel.bin');
 	die "line 267 Cannot find kernel\n" if !defined $name;
 	do_set_part ('KERNEL', 'file', $name);
     }
