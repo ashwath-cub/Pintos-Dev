@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -17,40 +18,76 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
+#include "threads/malloc.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void extract_filename_from_cmdline(const char* cmd_line, char* filename);
+
+#define MAX_FILENAME_SIZE_IN_BYTES   200
+
+
+void extract_filename_from_cmdline(const char* cmd_line, char* filename)
+{
+  uint16_t filename_index = 0, cmd_line_index=0;
+
+  do
+  {
+    ASSERT(filename_index<MAX_FILENAME_SIZE_IN_BYTES);
+    filename[ filename_index++ ] = cmd_line[ cmd_line_index++ ] ;
+    //keep assigning until we hit the end of the filename or the space delimiter indicating the presence of an arg
+  } while ( ( cmd_line[cmd_line_index-1]!='\0' ) && ( cmd_line[cmd_line_index]!=' ' ) );
+  
+  if( cmd_line[cmd_line_index]== ' ' )
+  {
+    ASSERT(filename_index<MAX_FILENAME_SIZE_IN_BYTES) ;
+    // set null char indicating filename string termination
+    filename[ filename_index ] = '\0' ;
+  }
+
+}
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (task_details* details) 
 {
-  char *fn_copy;
+  char *cmd_line_copy;
+  const char* cmd_line = details->cmd_line;
   tid_t tid;
-
-  /* Make a copy of FILE_NAME.
+  char filename[MAX_FILENAME_SIZE_IN_BYTES];
+  /* Make a copy of cmd line.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  cmd_line_copy = palloc_get_page (0);
+  if (cmd_line_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
 
+  strlcpy (cmd_line_copy, cmd_line, PGSIZE);
+  // get filename from cmd line
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  
+
+  // add method to extract just the filename and no args
+  // using strtok_r is not an option because it requires modifying the input string(which could be a user buffer).
+  // the copy is used for stack setup; so dont modify that either 
+  extract_filename_from_cmdline(cmd_line, filename);
+  details->cmd_line = cmd_line_copy;
+  tid = thread_create (filename, PRI_DEFAULT, start_process, (void*)details);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (cmd_line_copy); 
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *aux)
 {
-  char *file_name = file_name_;
+  task_details* details = (task_details*)aux ;
+  char *cmd_line =(char*)details->cmd_line;
   struct intr_frame if_;
   bool success;
 
@@ -59,12 +96,28 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (cmd_line, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
-    thread_exit ();
+  palloc_free_page (cmd_line);
+  if (!success)
+  {
+    if(details->notify)
+    {
+      details->notify->exec_child_tid = (tid_t)-1;
+      sema_up(details->notify->exec_syncer);
+    }
+    thread_exit (-1);
+  }
+
+
+  if(details->notify)
+  {
+    details->notify->exec_child_tid = thread_current()->tid;
+    sema_up(details->notify->exec_syncer);
+  }  
+    
+    
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -76,6 +129,7 @@ start_process (void *file_name_)
   NOT_REACHED ();
 }
 
+
 /* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If TID is invalid or if it was not a
@@ -86,9 +140,25 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid, struct list* children) 
 {
-  return -1;
+  int return_status=-1;
+  strct_wait* wait_status=NULL;
+  if(child_tid==TID_ERROR)
+  {
+    return return_status;       
+  }
+  // this scheme is based on type and pseudocode borrowed from uc berkley's wait/exit hw soln; cs162-fa15 
+  if((wait_status = get_wait_status_of_valid_child(child_tid, children))!=NULL)
+  {
+    sema_down(&wait_status->prnt_child_syncer);
+    // once we're able to decrement, we are safe to collect this status
+    return_status = wait_status->exit_status;    
+    list_remove(&wait_status->wait_elem);
+    wait_decrement_ref_cnt_and_check_to_free(wait_status);
+  }
+
+  return return_status ;
 }
 
 /* Free the current process's resources. */
@@ -97,7 +167,9 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
+  uint32_t fd_table_idx=0;
+  struct file* file_ptr;
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -114,6 +186,30 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  
+  if(cur->file_descriptor_table!=NULL)
+  {
+    if(cur->file_descriptor_table[MIN_USER_FD_NUMBER-1])
+    {
+      file_allow_write((struct file *)cur->file_descriptor_table[MIN_USER_FD_NUMBER-1]);
+    }
+
+    /*close all open file descriptors*/
+    for( fd_table_idx = MIN_USER_FD_NUMBER-1; fd_table_idx <= LAST_INDEX_IN_ARRAY_STORING_MAX_WORDS_IN_4K_PAGE; fd_table_idx++ )
+    {
+      if (cur->file_descriptor_table[fd_table_idx])
+      {
+        file_ptr =(struct file*) cur->file_descriptor_table[fd_table_idx];
+
+        /* close descriptor and zero out entry */
+        
+        file_close(file_ptr);
+        cur->file_descriptor_table[fd_table_idx]=0;
+      }
+    }
+    palloc_free_page(cur->file_descriptor_table);
+  }
+
 }
 
 /* Sets up the CPU for running user code in the current
@@ -195,7 +291,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, uint8_t* cmd_line_copy);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -206,7 +302,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (const char *cmd_line, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -219,16 +315,23 @@ load (const char *file_name, void (**eip) (void), void **esp)
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
+  t->file_descriptor_table = palloc_get_page(PAL_ZERO);
+  if (t->file_descriptor_table == NULL) 
+    goto done;
+  t->file_descriptor_ctr = MIN_USER_FD_NUMBER;
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (t->name);
+
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", t->name);
       goto done; 
     }
-
+  
+  t->file_descriptor_table[t->file_descriptor_ctr - 1]=(uint32_t)file;
+  file_deny_write(file);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -238,7 +341,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", t->name);
       goto done; 
     }
 
@@ -302,7 +405,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, (uint8_t*)cmd_line))
     goto done;
 
   /* Start address. */
@@ -312,7 +415,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
@@ -423,21 +525,85 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
     }
   return true;
 }
+#define RETURN_ADDRESS_INDEX    0
+#define ARGC_INDEX              1
+#define ARGV_INDEX              2
+
+
+typedef struct 
+{
+  uint32_t   return_address_padding;
+  uint32_t   argc;
+  char** argv;
+  /* this will contain argv[0], and argv = &argv_address_pad */
+  uint32_t   argv_address_pad;
+}stack_args_frame;
+
+#define WORD_SIZE                           4
+#define RETURN_ADDRESS_SIZE                 WORD_SIZE
+#define ARGC_SIZE                           WORD_SIZE
+#define ARGV_ADDRESS_SIZE                   WORD_SIZE
+#define ARGV_OF_ARGC_MEMBER_SIZE            sizeof(char*)
+#define SIZE_TO_ACCOMODATE_PTR_TO_NEW_ARG   sizeof(char*)
+#define MAX_NUMBER_OF_ARGUMENTS             100
+#define SIZE_OF_ADDRESS_OF_ARG              sizeof(char*)
+static char* arg_address[ MAX_NUMBER_OF_ARGUMENTS ] ;
+
+/* copy cmd line args into the stack and set it up according to 80x86 convention
+   and then return new stack top */
+static uint8_t* setup_stack_args( uint8_t* stack_end, uint8_t* cmd_line_copy )
+{
+  stack_args_frame* args_frame; 
+  char* arg_token, *save_ptr, *last_arg_address=(char*)stack_end;
+  uint16_t arg_length = 0, arg_index = 0, arg_count;
+  uint8_t* metadata_top;
+  for (arg_token = strtok_r ((char*)cmd_line_copy, " ", &save_ptr); arg_token != NULL; arg_token = strtok_r (NULL, " ", &save_ptr))
+  {
+    arg_length = strlen(arg_token);
+    
+    arg_address[ arg_index ] = last_arg_address - (arg_length+1) ;
+
+    memcpy(arg_address[ arg_index ], arg_token, (arg_length+1) );
+
+    last_arg_address = arg_address[arg_index];
+    arg_index++;
+  }
+  metadata_top = (uint8_t*)(last_arg_address - ((uint32_t)last_arg_address%WORD_SIZE));
+  
+  arg_count = arg_index ;
+
+  args_frame = (stack_args_frame*) (metadata_top - sizeof(stack_args_frame) - arg_count*WORD_SIZE) ;  // + size of the argv[argc] member - size of the zeroth arg which has been counted in the stack frame type already 
+  
+  args_frame->argv = (char**)&args_frame->argv_address_pad;
+  args_frame->return_address_padding = 0;
+  args_frame->argc = arg_count ;
+  for( arg_index = 0; arg_index < arg_count; arg_index++)
+  {
+    args_frame->argv[arg_index] = arg_address[arg_index];
+  }
+  // per c std argv[argc]=0
+  args_frame->argv[arg_index] = 0;
+  return (uint8_t*)args_frame;
+}
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, uint8_t* cmd_line_copy) 
 {
   uint8_t *kpage;
   bool success = false;
-
+  
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+      {
+        *esp = setup_stack_args( (uint8_t*) PHYS_BASE, cmd_line_copy );
+        
+      }
+        
       else
         palloc_free_page (kpage);
     }

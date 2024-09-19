@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "threads/malloc.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -62,7 +63,6 @@ bool thread_mlfqs;
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
-static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
 static bool is_thread (struct thread *) UNUSED;
@@ -70,6 +70,8 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static void thread_set_wait_status( struct thread* t, bool is_this_an_exec_call);
+static void exit_process_child_list(struct list* child_list);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -98,6 +100,7 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  thread_set_wait_status(initial_thread,false);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -147,6 +150,38 @@ thread_print_stats (void)
           idle_ticks, kernel_ticks, user_ticks);
 }
 
+
+void thread_set_wait_status( struct thread* t, bool is_this_an_exec_call)
+{
+  struct thread* current_thread;
+  
+  if( t==initial_thread || (strcmp(t->name,"idle")==0) )
+  {
+    t->wait_status=NULL;
+  }
+  else
+  {
+    current_thread = thread_current();
+
+    t->wait_status = (strct_wait*)malloc(sizeof(strct_wait));
+    
+    if(t->wait_status==NULL)
+    {
+      PANIC("malloc returned NULL during wait status allocation");
+    }
+    
+    lock_init( &t->wait_status->mutual_excluder );
+    
+    sema_init( &t->wait_status->prnt_child_syncer, 0);
+    
+    t->wait_status->ref_cnt = 2; // set to two for now
+    t->wait_status->child_tid = t->tid;
+
+    list_push_back(&current_thread->children, &t->wait_status->wait_elem);
+  }
+  list_init(&t->children);
+}
+
 /* Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
    and adds it to the ready queue.  Returns the thread identifier
@@ -171,7 +206,8 @@ thread_create (const char *name, int priority,
   struct switch_entry_frame *ef;
   struct switch_threads_frame *sf;
   tid_t tid;
-
+  task_details* details = (task_details*)aux;
+  bool is_this_an_exec_call = (details->notify!=NULL);
   ASSERT (function != NULL);
 
   /* Allocate thread. */
@@ -182,6 +218,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  thread_set_wait_status(t, is_this_an_exec_call);  
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -275,22 +312,72 @@ thread_tid (void)
   return thread_current ()->tid;
 }
 
+void exit_process_child_list(struct list* child_list)
+{
+  struct list_elem* wait_list_elem;
+  strct_wait* wait_status;
+  while(!list_empty(child_list))
+  {
+    wait_list_elem = list_pop_front(child_list);
+    wait_status = list_entry(wait_list_elem, strct_wait, wait_elem);
+    
+    wait_decrement_ref_cnt_and_check_to_free(wait_status);
+  }
+}
+
+/*
+  Method to help ensure that no singular agent is able to free the memory unless
+  the other is done using it; guaranteed by the ref cnt scheme
+  
+  this scheme is based on type and pseudocode borrowed from uc berkley's wait/exit hw soln; cs162-fa15
+*/
+void wait_decrement_ref_cnt_and_check_to_free(strct_wait* wait_status)
+{
+  lock_acquire(&wait_status->mutual_excluder);
+  int ref_cnt= wait_status->ref_cnt--;
+  lock_release(&wait_status->mutual_excluder);
+  
+  if(ref_cnt==0)
+  {
+    free( wait_status );  
+  }
+
+}
+
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
-thread_exit (void) 
+thread_exit (int exit_status) 
 {
-  ASSERT (!intr_context ());
+  
 
+  struct thread* current_thread = thread_current(); 
+  ASSERT (!intr_context ());
+  printf("%s: exit(%d)\n", current_thread->name, exit_status);
 #ifdef USERPROG
   process_exit ();
 #endif
+
+  // required for the initial process as it cannot have a parent
+  if(current_thread->wait_status)
+  {
+    current_thread->wait_status->exit_status = exit_status;
+    // incrment semaphore before decrementing the ref cnt and freeing the memmory
+    sema_up(&current_thread->wait_status->prnt_child_syncer);
+    wait_decrement_ref_cnt_and_check_to_free(current_thread->wait_status);
+  }
+
+  
+  if( !list_empty(&current_thread->children) )
+  {
+    exit_process_child_list(&current_thread->children);
+  }
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
+  list_remove (&current_thread->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -329,6 +416,25 @@ thread_foreach (thread_action_func *func, void *aux)
       struct thread *t = list_entry (e, struct thread, allelem);
       func (t, aux);
     }
+}
+
+strct_wait* get_wait_status_of_valid_child( tid_t child_tid, struct list* list_of_children )
+{
+
+  strct_wait* wait_status=NULL;
+  struct list_elem* child_elem;
+  
+  for( child_elem = list_begin(list_of_children); child_elem!= list_end(list_of_children) ; child_elem = list_next(child_elem))
+  {
+    wait_status = list_entry(child_elem, strct_wait, wait_elem);
+
+    if( wait_status->child_tid == child_tid )
+    {      
+      break;      
+    }
+  }
+
+  return wait_status;
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
@@ -422,7 +528,7 @@ kernel_thread (thread_func *function, void *aux)
 
   intr_enable ();       /* The scheduler runs with interrupts off. */
   function (aux);       /* Execute the thread function. */
-  thread_exit ();       /* If function() returns, kill the thread. */
+  thread_exit (0);       /* If function() returns, kill the thread. */
 }
 
 /* Returns the running thread. */
@@ -463,6 +569,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->file_descriptor_table = NULL;  
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

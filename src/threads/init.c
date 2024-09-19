@@ -134,7 +134,7 @@ main (void)
 
   /* Finish up. */
   shutdown ();
-  thread_exit ();
+  thread_exit (0);
 }
 
 /* Clear the "BSS", a segment that should be initialized to
@@ -285,7 +285,11 @@ run_task (char **argv)
   
   printf ("Executing '%s':\n", task);
 #ifdef USERPROG
-  process_wait (process_execute (task));
+  task_details details;
+  details.cmd_line = task;
+  details.notify=NULL;
+  struct thread* current_thread= running_thread();
+  process_wait (process_execute (&details), &current_thread->children);
 #else
   run_test (task);
 #endif

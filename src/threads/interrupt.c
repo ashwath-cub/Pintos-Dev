@@ -47,6 +47,7 @@ static unsigned int unexpected_cnt[INTR_CNT];
 static bool in_external_intr;   /* Are we processing an external interrupt? */
 static bool yield_on_return;    /* Should we yield on interrupt return? */
 
+
 /* Programmable Interrupt Controller helpers. */
 static void pic_init (void);
 static void pic_end_of_interrupt (int irq);

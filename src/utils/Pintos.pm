@@ -268,7 +268,7 @@ sub make_partition_table {
 sub make_kernel_command_line {
     my (@args) = @_;
     my ($args) = join ('', map ("$_\0", @args));
-    die "command line exceeds 128 bytes" if length ($args) > 128;
+    die "command line exceeds 4096 bytes" if length ($args) > 4096;
     return pack ("V a128", scalar (@args), $args);
 }
 

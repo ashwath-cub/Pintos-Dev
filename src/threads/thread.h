@@ -4,20 +4,32 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-
+#include "synch.h"
 /* States in a thread's life cycle. */
 enum thread_status
-  {
-    THREAD_RUNNING,     /* Running thread. */
-    THREAD_READY,       /* Not running but ready to run. */
-    THREAD_BLOCKED,     /* Waiting for an event to trigger. */
-    THREAD_DYING        /* About to be destroyed. */
-  };
+{
+ THREAD_RUNNING,     /* Running thread. */
+ THREAD_READY,       /* Not running but ready to run. */
+ THREAD_BLOCKED,     /* Waiting for an event to trigger. */
+ THREAD_DYING        /* About to be destroyed. */
+};
 
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
+
+// type borrowed from wait/exit hw soln; cs162-fa15
+typedef struct
+{
+   tid_t child_tid;
+   int exit_status;
+   int ref_cnt;
+   struct lock mutual_excluder;
+   struct semaphore prnt_child_syncer;
+   struct list_elem wait_elem;
+}strct_wait;
+
 
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
@@ -84,6 +96,8 @@ struct thread
   {
     /* Owned by thread.c. */
     tid_t tid;                          /* Thread identifier. */
+    strct_wait* wait_status;                /* ptr to shared memory between parent-child on the heap */
+    struct list children;
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
@@ -96,6 +110,9 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    // TODO: use a better data structure such as a red black tree or a hash table
+    uint32_t *file_descriptor_table;    /* file descriptor table for the process */
+    int file_descriptor_ctr;
 #endif
 
     /* Owned by thread.c. */
@@ -113,8 +130,20 @@ void thread_start (void);
 void thread_tick (void);
 void thread_print_stats (void);
 
+void thread_put_on_wait_list( tid_t waiting_child_tid );
+
+struct thread *running_thread (void);
+
+
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
+
+typedef bool thread_parent_type(struct thread* child_thr, struct thread* parent_thr );
+
+
+strct_wait* get_wait_status_of_valid_child( tid_t child_tid, struct list* list_of_children );
+void wait_decrement_ref_cnt_and_check_to_free(strct_wait* wait_status);
+
 
 void thread_block (void);
 void thread_unblock (struct thread *);
@@ -123,7 +152,7 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
-void thread_exit (void) NO_RETURN;
+void thread_exit (int exit_status) NO_RETURN;
 void thread_yield (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
