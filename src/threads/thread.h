@@ -100,11 +100,10 @@ struct thread
     int32_t priority;                   /* Priority. */
     
     /* additional members required to facilitate priority donation */
-    uint8_t donee_priority;             /* store the donee's original priority here; this helps with cases where the donee receives multiple priority donations */
     uint8_t original_priority;
     struct thread* donee_thread;        /* this helps us with nested priority donations */ 
-    uint32_t number_of_donors;
-    
+    struct list_elem donor_elem;
+    struct list priority_donors;    
     /* mlfq scheduler reqs */
     int8_t nice_value;
     int32_t recent_cpu;

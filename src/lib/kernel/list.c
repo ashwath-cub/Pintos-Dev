@@ -480,6 +480,39 @@ list_insert_ordered (struct list *list, struct list_elem *elem,
       break;
   return list_insert (e, elem);
 }
+/* re-inserts into sorted list on which elem is already present */
+void list_reinsert_ordered(struct list_elem* elem, list_less_func* less)
+{
+  ASSERT (elem != NULL);
+  ASSERT (less != NULL);
+  ASSERT (is_interior(elem));
+
+  struct list_elem *prev_elem = elem->prev, *next_elem=elem->next;
+
+  //remove elem
+  list_remove(elem);
+
+  if(((!is_tail(next_elem))&&(less(elem, next_elem, NULL)==false)))
+  {
+    // re-insert to the right
+    do
+    {
+      next_elem= next_elem->next;
+    }while ((!is_tail(next_elem)) && (less(elem, next_elem, NULL)==false)); 
+    list_insert(next_elem, elem);  
+  }
+  else
+  {
+    // re-insert to the left
+    while((!is_head(prev_elem)) && (less(elem, prev_elem, NULL)==true))
+    {
+      prev_elem= prev_elem->prev;
+    } 
+    list_insert(prev_elem->next, elem);
+  }
+
+  
+}
 
 /* Iterates through LIST and removes all but the first in each
    set of adjacent elements that are equal according to LESS

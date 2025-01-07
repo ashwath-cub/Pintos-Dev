@@ -739,11 +739,9 @@ init_thread (struct thread *t, const char *name, int priority)
   
   if( thread_mlfqs == false )
   {  //enable only for priority scheduling
-    t->donee_priority = 0xFF;
     t->original_priority = priority;
-    t->number_of_donors = 0;
-    //t->donee_status = PRIORITY_NON_DONEE;
     t->donee_thread=NULL;
+    list_init(&t->priority_donors);
   }
   else
   {

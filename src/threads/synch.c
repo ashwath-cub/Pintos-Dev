@@ -199,10 +199,10 @@ void handle_priority_donation(struct lock *lock)
   // and is a case where donation is needed
   if( (lock_holder_thread_ptr!=NULL) && (lock_holder_thread_ptr->priority < current_thread_ptr->priority) && lock->semaphore.value==0 ) 
   {
-    // copy donee's original first
-    current_thread_ptr->donee_priority = lock_holder_thread_ptr->priority;
+    // set donee thread value within current thread to lock holder 
     current_thread_ptr->donee_thread = lock_holder_thread_ptr ;
-    lock_holder_thread_ptr->number_of_donors++;
+    // add current thread to donor's list of lock holder
+    list_insert_ordered(&lock_holder_thread_ptr->priority_donors, &current_thread_ptr->donor_elem, is_thread_from_list_elemA_high_priority, NULL);
   do 
   { 
     // priority donation is required here
@@ -210,25 +210,22 @@ void handle_priority_donation(struct lock *lock)
     
     // if the donee's status is blocked/ready(it could also be sleeping; in which case no action is needed), 
     // re-add to the queue in which it is placed
-    if(lock_holder_thread_ptr->status==THREAD_READY)
+    if(lock_holder_thread_ptr->status!=THREAD_SLEEPING)
     {
-
-      list_remove(&lock_holder_thread_ptr->elem);
-      //add to ready list according to new priority
-      thread_place_on_ready_list_per_sched_policy(&lock_holder_thread_ptr->elem);  
+      list_reinsert_ordered(&lock_holder_thread_ptr->elem, is_thread_from_list_elemA_high_priority); 
     }
-    else if(lock_holder_thread_ptr->status==THREAD_BLOCKED)
+
+    if(lock_holder_thread_ptr->donee_thread!=NULL)
     {
-      list_head = list_head_given_interior_elem(&lock_holder_thread_ptr->elem);
-      resource_list= (struct list*)list_head;
-      list_remove(&lock_holder_thread_ptr->elem);
-      list_insert_ordered(resource_list, &lock_holder_thread_ptr->elem, is_thread_from_list_elemA_high_priority, NULL);
+      // re adjust position on it's donee's donors list
+      list_reinsert_ordered(&lock_holder_thread_ptr->donor_elem, is_thread_from_list_elemA_high_priority);
+
     }
 
     lock_holder_thread_ptr = lock_holder_thread_ptr->donee_thread;
     nested_priority_donation ++;
   }
-  //check nested donation requirement
+  //check nested donation requirement; dont donate if nested donation limit reached or if the lock holder's priority is higher 
   while ( (lock_holder_thread_ptr!=NULL)&&(nested_priority_donation<NESTED_PRIORITY_DONATION_LIMIT)&& ( lock_holder_thread_ptr->priority < current_thread_ptr->priority ) );
   
   }
@@ -256,32 +253,41 @@ void reset_priority_donation(struct lock *lock)
   {
     // scan all threads waiting on the lock to see who donated
     // in case of multiple donations associated with different locks, handle for the lock in consideration here
-    // when all the locks are released, the system will be reset aptly 
+    // when all the locks are released, the priority will be reset aptly 
     // (NOTE: key here is that it shouldnt be reset to it's original priority carelessly)
-
+    // On Nested Donations: 
+    // Nested donation can be simplified by thinking about it as if the original donor's priority increased
+    // Given that the way we reset our priority has nothing to do with the current lock(and donor) we are safe
+    
     for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
        e = list_next (e))
     {
       t = list_entry (e, struct thread, elem);
       if(t->donee_thread==current_thread)
       {
-        //match found; reset value in donor thread
+        //match found; reset value in donor thread; else we may end up with an associated nested priority donation
         t->donee_thread = NULL;
-        current_thread->number_of_donors --;
-      }
-
-      if (current_thread->priority == t->priority )
-      {
-        current_thread->priority = t->donee_priority;        
+        // remove match from donor's list
+        list_remove(&t->donor_elem);
       }
     }
-  
-    if (current_thread->priority != current_thread->original_priority && current_thread->number_of_donors == 0 )
+
+    // Now that all threads who have donated associated with the current lock have been removed from the list we are okay to set our new 
+    // priority to the new max within the donor's list which will be at the front 
+    // if donor's list is empty, we are able to reset our priority to original priority  
+    if ( !list_empty( &current_thread->priority_donors ) )
+    {
+      e = list_front( &current_thread->priority_donors );
+      t = list_entry( e, struct thread, donor_elem);
+      current_thread->priority = t->priority;
+    }
+    else
     {
       current_thread->priority = current_thread->original_priority;
     }
 
   }
+  
   lock->semaphore.value++;
   lock->holder=NULL;
   if (!list_empty (&lock->semaphore.waiters)) 
