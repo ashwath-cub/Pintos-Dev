@@ -70,7 +70,6 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
 static volatile uint32_t load_average=0;
 volatile uint32_t ready_threads=0;
-struct lock ready_threads_lock;
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -116,7 +115,6 @@ thread_init (void)
     {
       list_init( &ready_list_mlfqs[ ready_list_init_index ] );
     }
-    lock_init(&ready_threads_lock);
   }
   else
   {
@@ -405,15 +403,13 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-  //lock_acquire(&ready_threads_lock);
-  //lock_release(&ready_threads_lock);
+
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
   ready_threads = SUBTRACT_INT_FROM_FIXED_POINT_VALUE(ready_threads, 1);
 
-  //TODO: Is a lock needed here?
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
