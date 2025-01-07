@@ -179,6 +179,6 @@ void thread_compute_mlfqs_recent_cpu( struct thread* thread_ptr, void* AUX UNUSE
 void compute_load_average_for_mlfqs( void );
 
 void thread_place_on_ready_list_per_sched_policy(struct list_elem* thread);
-bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux);
+bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux UNUSED);
 
 #endif /* threads/thread.h */

@@ -122,6 +122,13 @@ struct list
 #define LIST_INITIALIZER(NAME) { { NULL, &(NAME).tail }, \
                                  { &(NAME).head, NULL } }
 
+/* Compares the value of two list elements A and B, given
+   auxiliary data AUX.  Returns true if A is less than B, or
+   false if A is greater than or equal to B. */
+typedef bool list_less_func (const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux);
+
 void list_init (struct list *);
 
 /* List traversal. */
@@ -135,7 +142,6 @@ struct list_elem *list_rend (struct list *);
 
 struct list_elem *list_head (struct list *);
 struct list_elem *list_tail (struct list *);
-struct list_elem *list_head_given_interior_elem (struct list_elem *elem); 
 
 /* List insertion. */
 void list_insert (struct list_elem *, struct list_elem *);
@@ -143,6 +149,7 @@ void list_splice (struct list_elem *before,
                   struct list_elem *first, struct list_elem *last);
 void list_push_front (struct list *, struct list_elem *);
 void list_push_back (struct list *, struct list_elem *);
+void list_reinsert_ordered(struct list_elem* elem, list_less_func* less);
 
 /* List removal. */
 struct list_elem *list_remove (struct list_elem *);
@@ -160,12 +167,7 @@ bool list_empty (struct list *);
 /* Miscellaneous. */
 void list_reverse (struct list *);
 
-/* Compares the value of two list elements A and B, given
-   auxiliary data AUX.  Returns true if A is less than B, or
-   false if A is greater than or equal to B. */
-typedef bool list_less_func (const struct list_elem *a,
-                             const struct list_elem *b,
-                             void *aux);
+
 
 /* Operations on lists with ordered elements. */
 void list_sort (struct list *,

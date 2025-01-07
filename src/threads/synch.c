@@ -32,6 +32,10 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #define NESTED_PRIORITY_DONATION_LIMIT 8
+
+static void handle_priority_donation(struct lock *lock);
+static void reset_priority_donation(struct lock *lock);
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -182,13 +186,11 @@ lock_init (struct lock *lock)
 }
 
 
-void handle_priority_donation(struct lock *lock)
+static void handle_priority_donation(struct lock *lock)
 {
   enum intr_level old_level;
   struct thread* lock_holder_thread_ptr, *current_thread_ptr;
   uint8_t nested_priority_donation=0;
-  struct list_elem* list_head ;
-  struct list* resource_list;
   
   ASSERT (!intr_context ());
 
@@ -240,14 +242,13 @@ void handle_priority_donation(struct lock *lock)
   intr_set_level (old_level);  
 }
 
-void reset_priority_donation(struct lock *lock)
+static void reset_priority_donation(struct lock *lock)
 {
   struct thread* current_thread = thread_current();
   enum intr_level old_level;
   struct thread *t;
   struct list_elem* e;
   old_level = intr_disable ();
-  bool match_found = true;
   // check to see if current thread received a priority donation
   if(current_thread->original_priority != current_thread->priority)
   {
@@ -307,7 +308,6 @@ void reset_priority_donation(struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
-  enum intr_level old_level;
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
@@ -395,7 +395,7 @@ cond_init (struct condition *cond)
   list_init (&cond->waiters);
 }
 
-bool is_semaphore_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux)
+static bool is_semaphore_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux UNUSED)
 {
   struct semaphore_elem * semA= list_entry(list_elemA, struct semaphore_elem, elem);
   struct semaphore_elem * semB= list_entry(list_elemB, struct semaphore_elem, elem);

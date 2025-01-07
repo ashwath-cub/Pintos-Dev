@@ -148,7 +148,7 @@ thread_start (void)
   sema_down (&idle_started);
 }
 
-static struct list_elem* wakeup_sleeping_thread_if_its_time_return_next(struct thread *t, void *aux)
+static struct list_elem* wakeup_sleeping_thread_if_its_time_return_next(struct thread *t, void *aux UNUSED)
 {
   t->elapsed_sleep_time ++ ;
   // save next_elem, before the current elem is placed on a different list
@@ -438,7 +438,7 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
-bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux)
+bool is_thread_from_list_elemA_high_priority(const struct list_elem* list_elemA, const struct list_elem* list_elemB, void* aux UNUSED)
 {
   struct thread * threadA= list_entry(list_elemA, struct thread, elem);
   struct thread * threadB= list_entry(list_elemB, struct thread, elem);
@@ -763,7 +763,6 @@ init_thread (struct thread *t, const char *name, int priority)
   }
 
   t->magic = THREAD_MAGIC;
-  //list_init (&t->priority_donors_list);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
